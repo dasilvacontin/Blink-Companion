@@ -1,0 +1,35 @@
+{
+  "name": "blink-companion",
+  "version": "1.0.0",
+  "description": "Real-time blink detection web app using MediaPipe Face Mesh",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve .",
+    "start": "npx serve .",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
+  },
+  "keywords": [
+    "blink-detection",
+    "mediapipe",
+    "face-mesh",
+    "computer-vision",
+    "webcam"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@mediapipe/camera_utils": "^0.3.1640029074",
+    "@mediapipe/face_mesh": "^0.4.1633559619"
+  },
+  "devDependencies": {
+    "@chromatic-com/storybook": "^3.2.7",
+    "@storybook/addon-essentials": "^8.6.14",
+    "@storybook/addon-interactions": "^8.6.14",
+    "@storybook/addon-links": "^8.6.14",
+    "@storybook/addon-webpack5-compiler-swc": "^4.0.2",
+    "@storybook/html": "^8.6.14",
+    "@storybook/html-webpack5": "^8.6.14",
+    "storybook": "^8.6.14"
+  }
+}
