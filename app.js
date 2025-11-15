@@ -2560,7 +2560,7 @@ class MenuApp {
     handleSOSPattern(anyEyeClosed, bothOpen) {
         const now = Date.now();
         const expectedDuration = this.sosPattern[this.sosStep];
-        const OVERFILL_THRESHOLD = 0.5; // 0.5 seconds after full fill is a mistake
+        const OVERFILL_THRESHOLD = 1.0; // 1.0 seconds after full fill is a mistake
         
         // If we require eyes to be open (after a reset), check if they are open now
         if (this.sosRequireEyesOpen) {
@@ -3275,18 +3275,6 @@ class MenuApp {
         const backButton = document.createElement('button');
         backButton.className = 'calibrate-button';
         backButton.textContent = 'Back to Lock Screen';
-        backButton.style.cssText = `
-            margin-top: 30px;
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            background: var(--bg-white);
-            border: 4px solid var(--border-fill);
-            border-radius: 8px;
-            color: var(--text-primary);
-            cursor: pointer;
-            font-family: "Comic Relief", system-ui;
-            font-weight: 400;
-        `;
         backButton.addEventListener('click', () => {
             this.renderMenu();
         });

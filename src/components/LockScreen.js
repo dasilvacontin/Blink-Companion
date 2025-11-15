@@ -45,19 +45,7 @@ export function createLockScreen({ patternProgress = [], showDebug = false }) {
   const calibrateButton = document.createElement('button');
   calibrateButton.className = 'calibrate-button';
   calibrateButton.id = 'calibrate-blink-button';
-  calibrateButton.textContent = 'Calibrate Blink';
-  calibrateButton.style.cssText = `
-    margin-top: 30px;
-    padding: 15px 30px;
-    font-size: 1.2rem;
-    background: var(--bg-white);
-    border: 4px solid var(--border-fill);
-    border-radius: 8px;
-    color: var(--text-primary);
-    cursor: pointer;
-    font-family: "Comic Relief", system-ui;
-    font-weight: 400;
-  `;
+  calibrateButton.textContent = 'Calibrate blink detection';
   container.appendChild(calibrateButton);
   
   // Debug panel - only show if showDebug is true
