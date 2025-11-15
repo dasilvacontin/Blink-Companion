@@ -44,7 +44,7 @@ class MenuApp {
         this.actionColumn = null; // Column being acted on during column selection
         this.actionMenuHoldTime = 0.5; // 0.5 seconds for action menu
         this.exitGameHoldTime = 2.0; // 2 seconds for exit game
-        this.focusAreaSize = 5; // Default focus area size (3x3, 5x5, 7x7, 9x9)
+        this.focusAreaSize = 3; // Default focus area size (3x3, 5x5, 7x7, 9x9)
         // Play area (null means full board)
         this.playAreaStartRow = null;
         this.playAreaEndRow = null;
@@ -104,6 +104,7 @@ class MenuApp {
     loadSettings() {
         const savedScrollSpeed = localStorage.getItem('scrollSpeed');
         const savedBlinkThreshold = localStorage.getItem('blinkThreshold');
+        const savedFocusAreaSize = localStorage.getItem('focusAreaSize');
         
         if (savedScrollSpeed) {
             this.scrollSpeed = parseFloat(savedScrollSpeed);
@@ -111,11 +112,15 @@ class MenuApp {
         if (savedBlinkThreshold) {
             this.blinkThreshold = parseFloat(savedBlinkThreshold);
         }
+        if (savedFocusAreaSize) {
+            this.focusAreaSize = parseInt(savedFocusAreaSize, 10);
+        }
     }
     
     saveSettings() {
         localStorage.setItem('scrollSpeed', this.scrollSpeed.toString());
         localStorage.setItem('blinkThreshold', this.blinkThreshold.toString());
+        localStorage.setItem('focusAreaSize', this.focusAreaSize.toString());
     }
     
     initializeMenus() {
@@ -366,10 +371,13 @@ class MenuApp {
             } else if (this.currentMenu === 'minesweeper-settings') {
                 this.updateMinesweeperSettingsMenu();
             } else if (this.currentMenu === 'minesweeper') {
-                // Filter out "Resume Game" if no game in progress
+                // Filter out "Resume Game" if no game in progress or if saved game is finished
                 this.options = this.options.filter(opt => {
                     if (opt.id === 'resume-game') {
-                        return this.gameInProgress && this.minesweeperGame !== null;
+                        // Check if there's a valid saved game that's not finished
+                        const savedGameState = this.loadGameState();
+                        const hasValidSavedGame = savedGameState && !savedGameState.gameOver;
+                        return (this.gameInProgress && this.minesweeperGame !== null) || hasValidSavedGame;
                     }
                     return true;
                 });
@@ -528,13 +536,25 @@ class MenuApp {
             this.navigateTo('minesweeper');
         } else if (option.id === 'new-game') {
             // Start new Minesweeper game setup flow
+            // Clear any saved game state when starting a new game
+            localStorage.removeItem('minesweeperGameState');
             this.navigateTo('minesweeper-difficulty');
         } else if (option.id === 'resume-game') {
             // Resume existing game
             if (this.gameInProgress && this.minesweeperGame) {
+                // Game is already in memory, just resume
                 this.minesweeperMode = true;
                 this.currentMenu = 'minesweeper-game';
                 this.renderMinesweeperGame();
+            } else {
+                // Try to load saved game state
+                const savedGameState = this.loadGameState();
+                if (savedGameState && !savedGameState.gameOver) {
+                    // Restore game settings and load the game
+                    this.selectedDifficulty = savedGameState.difficulty;
+                    this.selectedBoardSize = savedGameState.boardSize;
+                    this.startMinesweeperGame();
+                }
             }
         } else if (option.id === 'minesweeper-settings') {
             // Navigate to Minesweeper settings
@@ -642,11 +662,13 @@ class MenuApp {
                 // Clear the old game first
                 this.minesweeperGame = null;
                 this.gameInProgress = false;
+                localStorage.removeItem('minesweeperGameState'); // Clear saved state
                 this.startMinesweeperGame();
             } else if (option.id === 'exit-game') {
                 // Clear game completely when exiting from game over
                 this.minesweeperGame = null;
                 this.gameInProgress = false;
+                localStorage.removeItem('minesweeperGameState'); // Clear saved state
                 this.exitMinesweeperGame();
             }
         }
@@ -663,6 +685,10 @@ class MenuApp {
         const result = this.minesweeperGame.mineSquare(this.selectedRow, this.selectedCol);
         
         if (result.gameOver) {
+            // Game is finished - clear saved state
+            localStorage.removeItem('minesweeperGameState');
+            this.gameInProgress = false;
+            
             if (result.won) {
                 // Handle win - show win menu
                 this.gameMode = 'game-over';
@@ -679,6 +705,9 @@ class MenuApp {
             // Update play area to focus area size centered on this square
             this.updatePlayAreaAfterAction(this.selectedRow, this.selectedCol);
             
+            // Autosave game state after board modification
+            this.saveGameState();
+            
             // Re-render board and return to row selection
             this.resetRowSelection();
         }
@@ -689,11 +718,17 @@ class MenuApp {
         
         // Don't update play area for flag actions - only mines move the center
         
+        // Autosave game state after board modification
+        this.saveGameState();
+        
         // Re-render board and return to row selection
         this.resetRowSelection();
     }
     
     exitMinesweeperGame() {
+        // Game state is already autosaved on every board modification
+        // No need to save again here - it's already up to date
+        
         // Don't clear minesweeperGame or gameInProgress - allow resuming
         this.minesweeperMode = false;
         this.gameMode = 'row-selection';
@@ -856,6 +891,7 @@ class MenuApp {
             this.focusAreaSize -= 2;
             this.updateValueDisplay();
             this.updateDisabledStates();
+            this.saveSettings();
         }
     }
     
@@ -865,6 +901,7 @@ class MenuApp {
             this.focusAreaSize += 2;
             this.updateValueDisplay();
             this.updateDisabledStates();
+            this.saveSettings();
         }
     }
     
@@ -960,33 +997,75 @@ class MenuApp {
     }
     
     startMinesweeperGame() {
-        // Initialize game engine
-        this.minesweeperGame = new MinesweeperEngine(
-            this.selectedDifficulty,
-            this.selectedBoardSize
-        );
+        // Try to load saved game state first
+        const savedGameState = this.loadGameState();
+        
+        if (savedGameState && this.selectedDifficulty === savedGameState.difficulty && 
+            this.selectedBoardSize === savedGameState.boardSize) {
+            // Load saved game
+            this.minesweeperGame = new MinesweeperEngine(
+                savedGameState.difficulty,
+                savedGameState.boardSize
+            );
+            
+            // Restore game state
+            this.minesweeperGame.board = savedGameState.board;
+            this.minesweeperGame.revealed = savedGameState.revealed;
+            this.minesweeperGame.flagged = savedGameState.flagged;
+            this.minesweeperGame.mines = savedGameState.mines;
+            this.minesweeperGame.gameOver = savedGameState.gameOver;
+            this.minesweeperGame.won = savedGameState.won;
+            this.minesweeperGame.firstMine = savedGameState.firstMine;
+            
+            // Restore play area if saved
+            if (savedGameState.playAreaStartRow !== null) {
+                this.playAreaStartRow = savedGameState.playAreaStartRow;
+                this.playAreaEndRow = savedGameState.playAreaEndRow;
+                this.playAreaStartCol = savedGameState.playAreaStartCol;
+                this.playAreaEndCol = savedGameState.playAreaEndCol;
+                this.lastActionRow = savedGameState.lastActionRow;
+                this.lastActionCol = savedGameState.lastActionCol;
+            } else {
+                // Initialize play area to focus area size centered on the board
+                const boardState = this.minesweeperGame.getBoardState();
+                const centerRow = Math.floor(boardState.rows / 2);
+                const centerCol = Math.floor(boardState.cols / 2);
+                const playArea = this.calculatePlayArea(centerRow, centerCol, boardState.rows, boardState.cols);
+                this.playAreaStartRow = playArea.startRow;
+                this.playAreaEndRow = playArea.endRow;
+                this.playAreaStartCol = playArea.startCol;
+                this.playAreaEndCol = playArea.endCol;
+                this.lastActionRow = centerRow;
+                this.lastActionCol = centerCol;
+            }
+        } else {
+            // Initialize new game engine
+            this.minesweeperGame = new MinesweeperEngine(
+                this.selectedDifficulty,
+                this.selectedBoardSize
+            );
+            
+            // Initialize play area to focus area size centered on the board
+            const boardState = this.minesweeperGame.getBoardState();
+            const centerRow = Math.floor(boardState.rows / 2);
+            const centerCol = Math.floor(boardState.cols / 2);
+            const playArea = this.calculatePlayArea(centerRow, centerCol, boardState.rows, boardState.cols);
+            this.playAreaStartRow = playArea.startRow;
+            this.playAreaEndRow = playArea.endRow;
+            this.playAreaStartCol = playArea.startCol;
+            this.playAreaEndCol = playArea.endCol;
+            this.lastActionRow = centerRow;
+            this.lastActionCol = centerCol;
+        }
         
         // Enter game mode
         this.minesweeperMode = true;
         // For 3x3 areas with active play area, start in square-selection mode; otherwise row-selection
-        // (Note: play area will be set below, so we check after initialization)
         this.gameMode = 'row-selection';
         this.selectedRow = null;
         this.selectedCol = null;
         this.currentMenu = 'minesweeper-game';
         this.currentIndex = 0;
-        
-        // Initialize play area to focus area size centered on the board
-        const boardState = this.minesweeperGame.getBoardState();
-        const centerRow = Math.floor(boardState.rows / 2);
-        const centerCol = Math.floor(boardState.cols / 2);
-        const playArea = this.calculatePlayArea(centerRow, centerCol, boardState.rows, boardState.cols);
-        this.playAreaStartRow = playArea.startRow;
-        this.playAreaEndRow = playArea.endRow;
-        this.playAreaStartCol = playArea.startCol;
-        this.playAreaEndCol = playArea.endCol;
-        this.lastActionRow = centerRow;
-        this.lastActionCol = centerCol;
         
         // For 3x3 areas with active play area, use square-selection mode
         if (this.focusAreaSize === 3 && this.playAreaStartRow !== null) {
@@ -1001,6 +1080,47 @@ class MenuApp {
         
         // Render game board
         this.renderMinesweeperGame();
+    }
+    
+    saveGameState() {
+        if (!this.minesweeperGame) return;
+        
+        const boardState = this.minesweeperGame.getBoardState();
+        
+        // Don't save if game is finished
+        if (boardState.gameOver) return;
+        
+        const gameState = {
+            difficulty: this.selectedDifficulty,
+            boardSize: this.selectedBoardSize,
+            board: boardState.board,
+            revealed: boardState.revealed,
+            flagged: boardState.flagged,
+            mines: this.minesweeperGame.mines, // Get mines array directly from engine
+            gameOver: boardState.gameOver,
+            won: boardState.won,
+            firstMine: this.minesweeperGame.firstMine,
+            playAreaStartRow: this.playAreaStartRow,
+            playAreaEndRow: this.playAreaEndRow,
+            playAreaStartCol: this.playAreaStartCol,
+            playAreaEndCol: this.playAreaEndCol,
+            lastActionRow: this.lastActionRow,
+            lastActionCol: this.lastActionCol
+        };
+        
+        localStorage.setItem('minesweeperGameState', JSON.stringify(gameState));
+    }
+    
+    loadGameState() {
+        const savedState = localStorage.getItem('minesweeperGameState');
+        if (!savedState) return null;
+        
+        try {
+            return JSON.parse(savedState);
+        } catch (e) {
+            console.error('Failed to load game state:', e);
+            return null;
+        }
     }
     
     // Calculate play area (focus area size) centered on a square, keeping within board bounds
@@ -1569,6 +1689,8 @@ class MenuApp {
                     if (!squareState.revealed) {
                         // Toggle flag immediately when blink starts on highlighted square
                         this.minesweeperGame.toggleFlag(highlightedSquare.row, highlightedSquare.col);
+                        // Autosave game state after board modification
+                        this.saveGameState();
                         // Re-render immediately to show the flag change
                         this.renderMinesweeperGame();
                     }
@@ -1626,6 +1748,8 @@ class MenuApp {
                     if (!squareState.revealed) {
                         // Toggle flag immediately when blink starts on highlighted column
                         this.minesweeperGame.toggleFlag(this.selectedRow, highlightedCol);
+                        // Autosave game state after board modification
+                        this.saveGameState();
                         // Re-render immediately to show the flag change
                         this.renderMinesweeperGame();
                     }
@@ -1962,6 +2086,12 @@ class MenuApp {
         // Update play area center after mining
         this.updatePlayAreaAfterAction(row, col);
         
+        // Autosave game state after board modification (handleMineAction already handles gameOver case)
+        const boardState = this.minesweeperGame.getBoardState();
+        if (!boardState.gameOver) {
+            this.saveGameState();
+        }
+        
         // Reset to appropriate selection mode
         if (this.focusAreaSize === 3 && this.playAreaStartRow !== null) {
             // For 3x3 with active play area, reset to square-selection mode
@@ -1984,6 +2114,10 @@ class MenuApp {
         const result = this.minesweeperGame.mineSquare(row, col);
         
         if (result.gameOver) {
+            // Game is finished - clear saved state
+            localStorage.removeItem('minesweeperGameState');
+            this.gameInProgress = false;
+            
             if (result.won) {
                 // Handle win - show win menu
                 this.gameMode = 'game-over';
@@ -1999,6 +2133,9 @@ class MenuApp {
         } else {
             // Update play area to 5x5 centered on this square
             this.updatePlayAreaAfterAction(row, col);
+            
+            // Autosave game state after board modification
+            this.saveGameState();
             
             // Re-render board and return to row selection
             // (resetRowSelection will clear columnSelectionStartIndex)
