@@ -95,12 +95,12 @@ class MenuApp {
     initializeMenus() {
         this.menus = {
             main: [
-                { id: 'spell', title: 'Spell', subtitle: 'Write text by selecting letters or appending saved text' },
-                { id: 'saved-text', title: 'Saved text', subtitle: 'Manage saved pieces of text' },
+                { id: 'write', title: 'Write', subtitle: 'Write text with predictive assistance' },
+                { id: 'saved-text', title: 'Saved text', subtitle: 'View and manage saved text' },
                 { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' },
-                { id: 'lock', title: 'Lock', subtitle: 'Lock the app to rest' }
+                { id: 'lock', title: 'Rest', subtitle: 'Lock the app to rest' }
             ],
-            spell: [
+            write: [
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
             ],
             'saved-text': [
@@ -147,10 +147,10 @@ class MenuApp {
         } else {
             const titleMap = {
                 'main': 'Main Menu',
-                'spell': 'Spell',
+                'write': 'Write',
                 'saved-text': 'Saved text',
                 'settings': 'Settings',
-                'lock': 'Lock'
+                'lock': 'Rest'
             };
             titleText = titleMap[this.currentMenu] || 'Menu';
         }
