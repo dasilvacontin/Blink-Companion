@@ -1,3 +1,8 @@
+// Import components
+import { createMenuContainer } from './src/components/MenuContainer.js';
+import { createSettingsDetail } from './src/components/SettingsDetail.js';
+import { createMenuTitle } from './src/components/MenuTitle.js';
+
 // Eye landmark indices for MediaPipe Face Mesh
 const LEFT_EYE_POINTS = {
     horizontal: [33, 133],
@@ -90,7 +95,21 @@ class MenuApp {
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
             ],
             settings: [
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'scroll-speed', title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '' },
+                { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' },
+                { id: 'back', title: '<< Back <<', subtitle: 'Return to previous menu' }
+            ],
+            'scroll-speed': [
+                { id: 'decrease', title: '- Decrease -', subtitle: '' },
+                { id: 'value', title: '', subtitle: '' }, // Will be populated dynamically
+                { id: 'increase', title: '+ Increase +', subtitle: '' },
+                { id: 'back', title: '<< Back <<', subtitle: 'Return to previous menu' }
+            ],
+            'blink-threshold': [
+                { id: 'decrease', title: '- Decrease -', subtitle: '' },
+                { id: 'value', title: '', subtitle: '' }, // Will be populated dynamically
+                { id: 'increase', title: '+ Increase +', subtitle: '' },
+                { id: 'back', title: '<< Back <<', subtitle: 'Return to previous menu' }
             ],
             lock: [
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
@@ -99,58 +118,135 @@ class MenuApp {
     }
     
     renderMenu() {
-        const menuTitle = document.getElementById('menu-title');
+        const menuContainer = document.getElementById('menu-container');
+        const menuTitleEl = document.getElementById('menu-title');
         const menuOptions = document.getElementById('menu-options');
-        
-        // Set title
-        const titleMap = {
-            'main': 'Main Menu',
-            'spell': 'Spell',
-            'saved-text': 'Saved text',
-            'settings': 'Settings',
-            'lock': 'Lock'
-        };
-        menuTitle.textContent = titleMap[this.currentMenu] || 'Menu';
         
         // Get options for current menu
         this.options = this.menus[this.currentMenu] || [];
         this.currentIndex = 0;
         
-        // Clear and render options
-        menuOptions.innerHTML = '';
-        this.options.forEach((option, index) => {
-            const optionEl = document.createElement('div');
-            optionEl.className = 'menu-option';
-            optionEl.dataset.index = index;
+        // Determine title text
+        let titleText = '';
+        if (this.currentMenu === 'scroll-speed') {
+            titleText = 'Settings / Scroll Speed';
+        } else if (this.currentMenu === 'blink-threshold') {
+            titleText = 'Settings / Blink threshold';
+        } else {
+            const titleMap = {
+                'main': 'Main Menu',
+                'spell': 'Spell',
+                'saved-text': 'Saved text',
+                'settings': 'Settings',
+                'lock': 'Lock'
+            };
+            titleText = titleMap[this.currentMenu] || 'Menu';
+        }
+        
+        // Special handling for settings detail pages - use SettingsDetail component
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
+            const currentValue = this.currentMenu === 'scroll-speed' ? this.scrollSpeed : this.blinkThreshold;
             
-            const progressFill = document.createElement('div');
-            progressFill.className = 'progress-fill';
+            // Update title using MenuTitle component
+            if (menuTitleEl) {
+                const newTitle = createMenuTitle(titleText);
+                menuTitleEl.replaceWith(newTitle);
+                newTitle.id = 'menu-title';
+            }
             
-            const content = document.createElement('div');
-            content.className = 'menu-option-content';
+            // Clear and render using SettingsDetail component
+            menuOptions.innerHTML = '';
+            const settingsDetail = createSettingsDetail({
+                title: titleText,
+                currentValue: currentValue,
+                onDecrease: () => {},
+                onIncrease: () => {}
+            });
             
-            const title = document.createElement('div');
-            title.className = 'menu-option-title';
-            title.textContent = option.title;
+            // Append all options from SettingsDetail
+            Array.from(settingsDetail.children).forEach((optionEl, index) => {
+                optionEl.dataset.index = index;
+                menuOptions.appendChild(optionEl);
+            });
             
-            const subtitle = document.createElement('div');
-            subtitle.className = 'menu-option-subtitle';
-            subtitle.textContent = option.subtitle;
+            // Map the options for selection logic
+            this.options = [
+                { id: 'decrease', title: '- Decrease -', subtitle: '' },
+                { id: 'value', title: `${currentValue.toFixed(1)} s`, subtitle: '' },
+                { id: 'increase', title: '+ Increase +', subtitle: '' },
+                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+            ];
+        } else {
+            // Use MenuContainer component for regular menus
+            // Update settings menu values dynamically before rendering
+            if (this.currentMenu === 'settings') {
+                this.updateSettingsMenu();
+            }
             
-            content.appendChild(title);
-            content.appendChild(subtitle);
-            optionEl.appendChild(progressFill);
-            optionEl.appendChild(content);
-            menuOptions.appendChild(optionEl);
-        });
+            // Prepare options for MenuContainer
+            const containerOptions = this.options.map(option => ({
+                title: option.title,
+                subtitle: option.subtitle,
+                value: option.value,
+                id: option.id
+            }));
+            
+            // Create menu using MenuContainer component
+            const menuContainerComponent = createMenuContainer({
+                title: titleText,
+                options: containerOptions,
+                highlightedIndex: 0,
+                isSettings: this.currentMenu === 'settings'
+            });
+            
+            // Replace the existing menu structure
+            const newTitle = menuContainerComponent.querySelector('.menu-title');
+            const newOptions = menuContainerComponent.querySelector('.menu-options');
+            
+            if (menuTitleEl && newTitle) {
+                menuTitleEl.replaceWith(newTitle);
+                newTitle.id = 'menu-title';
+            }
+            
+            if (menuOptions && newOptions) {
+                menuOptions.replaceWith(newOptions);
+                newOptions.id = 'menu-options';
+                newOptions.className = 'menu-options';
+            }
+            
+            // Add dataset.index to each option for selection logic
+            const optionEls = newOptions.querySelectorAll('.menu-option');
+            optionEls.forEach((el, index) => {
+                el.dataset.index = index;
+            });
+            
+            // Update settings menu values after rendering if needed
+            if (this.currentMenu === 'settings') {
+                // Update value displays in the rendered options
+                optionEls.forEach((el, index) => {
+                    const option = this.options[index];
+                    if (option && option.value) {
+                        const valueEl = el.querySelector('.menu-option-value');
+                        if (valueEl) {
+                            valueEl.textContent = option.value;
+                        }
+                    }
+                });
+            }
+        }
         
         this.updateHighlight();
     }
     
+    
     updateHighlight() {
         const optionEls = document.querySelectorAll('.menu-option');
         optionEls.forEach((el, index) => {
-            if (index === this.currentIndex) {
+            // Skip highlighting value display
+            const titleEl = el.querySelector('.menu-option-title');
+            const isValueDisplay = titleEl && titleEl.textContent.includes(' s') && !titleEl.textContent.includes('-') && !titleEl.textContent.includes('+');
+            
+            if (index === this.currentIndex && !isValueDisplay) {
                 el.classList.add('highlighted');
             } else {
                 el.classList.remove('highlighted');
@@ -165,7 +261,15 @@ class MenuApp {
         
         this.scrollInterval = setInterval(() => {
             if (!this.isSelecting) {
-                this.currentIndex = (this.currentIndex + 1) % this.options.length;
+                // Skip value display option in settings detail pages
+                let nextIndex = (this.currentIndex + 1) % this.options.length;
+                if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
+                    // Skip value option (index 1)
+                    if (nextIndex === 1) {
+                        nextIndex = (nextIndex + 1) % this.options.length;
+                    }
+                }
+                this.currentIndex = nextIndex;
                 this.updateHighlight();
             }
         }, this.scrollSpeed * 1000);
@@ -178,8 +282,69 @@ class MenuApp {
         
         if (option.id === 'back') {
             this.navigateBack();
+        } else if (option.id === 'decrease') {
+            this.decreaseSetting();
+        } else if (option.id === 'increase') {
+            this.increaseSetting();
+        } else if (option.id === 'value') {
+            // Value display is not selectable, skip to next
+            return;
         } else {
             this.navigateTo(option.id);
+        }
+    }
+    
+    decreaseSetting() {
+        if (this.currentMenu === 'scroll-speed') {
+            this.scrollSpeed = Math.max(0.1, this.scrollSpeed - 0.1);
+            this.saveSettings();
+            this.startAutoScroll(); // Restart with new speed
+            this.updateValueDisplay();
+        } else if (this.currentMenu === 'blink-threshold') {
+            this.blinkThreshold = Math.max(0.1, this.blinkThreshold - 0.1);
+            this.saveSettings();
+            this.updateValueDisplay();
+        }
+        // Update settings menu values if we're going back to settings
+        this.updateSettingsMenu();
+    }
+    
+    increaseSetting() {
+        if (this.currentMenu === 'scroll-speed') {
+            this.scrollSpeed += 0.1;
+            this.saveSettings();
+            this.startAutoScroll(); // Restart with new speed
+            this.updateValueDisplay();
+        } else if (this.currentMenu === 'blink-threshold') {
+            this.blinkThreshold += 0.1;
+            this.saveSettings();
+            this.updateValueDisplay();
+        }
+        // Update settings menu values if we're going back to settings
+        this.updateSettingsMenu();
+    }
+    
+    updateValueDisplay() {
+        // Update value display for settings detail pages without re-rendering entire menu
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
+            const currentValue = this.currentMenu === 'scroll-speed' ? this.scrollSpeed : this.blinkThreshold;
+            const menuOptions = document.getElementById('menu-options');
+            if (menuOptions) {
+                const valueEl = Array.from(menuOptions.children).find(el => {
+                    return el.dataset.id === 'value';
+                });
+                if (valueEl) {
+                    const titleEl = valueEl.querySelector('.menu-option-title');
+                    if (titleEl) {
+                        titleEl.textContent = `${currentValue.toFixed(1)} s`;
+                    }
+                    // Update options array for selection logic
+                    const valueOption = this.options.find(opt => opt.id === 'value');
+                    if (valueOption) {
+                        valueOption.title = `${currentValue.toFixed(1)} s`;
+                    }
+                }
+            }
         }
     }
     
@@ -188,6 +353,13 @@ class MenuApp {
         this.currentMenu = menuId;
         this.renderMenu();
         this.resetBlinkState();
+    }
+    
+    updateSettingsMenu() {
+        if (this.menus.settings) {
+            this.menus.settings[0].value = `${this.scrollSpeed.toFixed(1)}s`;
+            this.menus.settings[1].value = `${this.blinkThreshold.toFixed(1)}s`;
+        }
     }
     
     navigateBack() {
@@ -213,12 +385,18 @@ class MenuApp {
         if (this.isSelecting) return;
         if (!this.eyesWereOpen) return; // Don't start if eyes weren't open first
         
+        const optionEls = document.querySelectorAll('.menu-option');
+        if (this.currentIndex >= optionEls.length) return;
+        
+        const optionEl = optionEls[this.currentIndex];
+        const progressFill = optionEl.querySelector('.progress-fill');
+        
+        // Don't start selection if there's no progress fill (e.g., value display)
+        if (!progressFill) return;
+        
         this.isSelecting = true;
         this.selectionProgress = 0;
         this.selectionStartTime = Date.now();
-        
-        const optionEl = document.querySelectorAll('.menu-option')[this.currentIndex];
-        const progressFill = optionEl.querySelector('.progress-fill');
         
         const animate = () => {
             if (!this.isSelecting) {
@@ -229,7 +407,9 @@ class MenuApp {
             const elapsed = (Date.now() - this.selectionStartTime) / 1000;
             this.selectionProgress = Math.min(elapsed / this.blinkThreshold, 1);
             
-            progressFill.style.width = (this.selectionProgress * 100) + '%';
+            if (progressFill) {
+                progressFill.style.width = (this.selectionProgress * 100) + '%';
+            }
             
             if (this.selectionProgress >= 1) {
                 // Selection complete
@@ -256,7 +436,9 @@ class MenuApp {
         const optionEls = document.querySelectorAll('.menu-option');
         optionEls.forEach(el => {
             const progressFill = el.querySelector('.progress-fill');
-            progressFill.style.width = '0%';
+            if (progressFill) {
+                progressFill.style.width = '0%';
+            }
         });
     }
     

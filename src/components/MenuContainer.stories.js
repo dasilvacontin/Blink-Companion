@@ -60,9 +60,32 @@ export const SettingsMenu = {
   args: {
     title: 'Settings',
     options: [
-      { title: 'Back', subtitle: 'Return to previous menu' },
+      { title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '0.5s' },
+      { title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '0.3s' },
+      { title: '<< Back <<', subtitle: 'Return to previous menu' },
     ],
     highlightedIndex: 0,
+    isSettings: true,
+  },
+  render: (args) => {
+    const container = createMenuContainer(args);
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '600px';
+    wrapper.appendChild(container);
+    return wrapper;
+  },
+};
+
+export const SettingsMenuHighlightedSecond = {
+  args: {
+    title: 'Settings',
+    options: [
+      { title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '0.5s' },
+      { title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '0.3s' },
+      { title: '<< Back <<', subtitle: 'Return to previous menu' },
+    ],
+    highlightedIndex: 1,
+    isSettings: true,
   },
   render: (args) => {
     const container = createMenuContainer(args);

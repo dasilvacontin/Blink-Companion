@@ -76,6 +76,13 @@ body {
     font-weight: normal;
 }
 
+.menu-option-value {
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    margin-top: 4px;
+    font-weight: normal;
+}
+
 /* Progress indicator - fills from left to right */
 .progress-fill {
     position: absolute;
