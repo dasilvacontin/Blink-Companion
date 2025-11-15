@@ -3,6 +3,9 @@ import { createMenuContainer } from './src/components/MenuContainer.js';
 import { createSettingsDetail } from './src/components/SettingsDetail.js';
 import { createMenuTitle } from './src/components/MenuTitle.js';
 import { createLockScreen } from './src/components/LockScreen.js';
+import { MinesweeperEngine } from './src/game/MinesweeperEngine.js';
+import { createMinesweeperBoard } from './src/components/MinesweeperBoard.js';
+import { createMenuOption } from './src/components/MenuOption.js';
 
 // Eye landmark indices for MediaPipe Face Mesh
 const LEFT_EYE_POINTS = {
@@ -33,6 +36,22 @@ class MenuApp {
         // Minesweeper setup state
         this.selectedDifficulty = null;
         this.selectedBoardSize = null;
+        this.minesweeperGame = null;
+        this.minesweeperMode = false; // Whether we're in game mode
+        this.gameMode = 'row-selection'; // 'row-selection', 'column-selection', 'action-menu', 'game-over'
+        this.selectedRow = null;
+        this.selectedCol = null;
+        this.rowSelectionTimeout = null;
+        this.actionMenuHoldTime = 0.5; // 0.5 seconds for action menu
+        this.exitGameHoldTime = 2.0; // 2 seconds for exit game
+        // 5x5 play area (null means full board)
+        this.playAreaStartRow = null;
+        this.playAreaEndRow = null;
+        this.playAreaStartCol = null;
+        this.playAreaEndCol = null;
+        this.lastActionRow = null; // Row of last action (mine or flag)
+        this.lastActionCol = null; // Col of last action (mine or flag)
+        this.boardActions = null; // Board actions (Zoom Out, Exit Game)
         
         // Selection state
         this.isSelecting = false;
@@ -154,6 +173,12 @@ class MenuApp {
     }
     
     renderMenu() {
+        // If in Minesweeper game mode, render game instead
+        if (this.minesweeperMode && this.currentMenu === 'minesweeper-game') {
+            this.renderMinesweeperGame();
+            return;
+        }
+        
         const menuContainer = document.getElementById('menu-container');
         const menuTitleEl = document.getElementById('menu-title');
         const menuOptions = document.getElementById('menu-options');
@@ -353,6 +378,12 @@ class MenuApp {
     selectOption() {
         if (this.options.length === 0) return;
         
+        // Handle Minesweeper game selections
+        if (this.minesweeperMode) {
+            this.handleGameSelection();
+            return;
+        }
+        
         const option = this.options[this.currentIndex];
         
         if (option.id === 'back') {
@@ -377,18 +408,141 @@ class MenuApp {
             this.selectedDifficulty = option.id;
             this.navigateTo('minesweeper-board-size');
         } else if (option.id === 'small' || option.id === 'medium' || option.id === 'large') {
-            // Store selected board size and start game (Phase 2+)
+            // Store selected board size and start game
             this.selectedBoardSize = option.id;
-            // TODO: Phase 2+ - Initialize and start the game
-            console.log('Starting Minesweeper with:', {
-                difficulty: this.selectedDifficulty,
-                boardSize: this.selectedBoardSize
-            });
-            // For now, just navigate back to games menu
-            this.navigateTo('games');
+            this.startMinesweeperGame();
         } else {
             this.navigateTo(option.id);
         }
+    }
+    
+    handleGameSelection() {
+        const boardState = this.minesweeperGame.getBoardState();
+        
+        if (this.gameMode === 'row-selection') {
+            // Check if we're selecting a row or a board action
+            const availableRows = this.getAvailableRows(boardState);
+            const boardActionsCount = this.boardActions ? this.boardActions.length : 0;
+            
+            if (this.currentIndex < availableRows.length) {
+                // Select the currently highlighted row
+                this.selectedRow = availableRows[this.currentIndex];
+                this.selectedCol = null;
+                this.gameMode = 'column-selection';
+                this.currentIndex = 0;
+                this.renderMinesweeperGame();
+                // Start timeout for row selection reset
+                this.startRowSelectionTimeout();
+            } else {
+                // Select a board action (Zoom Out or Exit Game)
+                const actionIndex = this.currentIndex - availableRows.length;
+                if (this.boardActions && actionIndex < this.boardActions.length) {
+                    const action = this.boardActions[actionIndex];
+                    if (action.id === 'zoom-out') {
+                        // Zoom out - remove 5x5 play area
+                        this.playAreaStartRow = null;
+                        this.playAreaEndRow = null;
+                        this.playAreaStartCol = null;
+                        this.playAreaEndCol = null;
+                        this.currentIndex = 0;
+                        this.renderMinesweeperGame();
+                    } else if (action.id === 'exit-game') {
+                        // Exit game
+                        this.exitMinesweeperGame();
+                    }
+                }
+            }
+        } else if (this.gameMode === 'column-selection') {
+            // Select the currently highlighted column
+            const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
+            if (this.currentIndex < availableCols.length) {
+                this.selectedCol = availableCols[this.currentIndex];
+                this.gameMode = 'action-menu';
+                this.currentIndex = 0;
+                if (this.rowSelectionTimeout) {
+                    clearTimeout(this.rowSelectionTimeout);
+                    this.rowSelectionTimeout = null;
+                }
+                this.renderMinesweeperGame();
+            }
+        } else if (this.gameMode === 'action-menu') {
+            // Handle action menu selection
+            if (this.options.length === 0) return;
+            const option = this.options[this.currentIndex];
+            if (option.id === 'mine') {
+                this.handleMineAction();
+            } else if (option.id === 'flag') {
+                this.handleFlagAction();
+            } else if (option.id === 'exit') {
+                this.resetRowSelection();
+            }
+        } else if (this.gameMode === 'game-over') {
+            // Handle game over menu selection
+            if (this.options.length === 0) return;
+            const option = this.options[this.currentIndex];
+            if (option.id === 'play-again') {
+                // Restart the game with same settings
+                this.startMinesweeperGame();
+            } else if (option.id === 'exit-game') {
+                this.exitMinesweeperGame();
+            }
+        }
+    }
+    
+    handleMineAction() {
+        const result = this.minesweeperGame.mineSquare(this.selectedRow, this.selectedCol);
+        
+        if (result.gameOver) {
+            if (result.won) {
+                // Handle win - show win menu
+                this.gameMode = 'game-over';
+                this.currentIndex = 0;
+                this.renderMinesweeperGame();
+            } else {
+                // Handle loss - reveal the mine and show game over menu
+                // The mine should already be revealed by the engine
+                this.gameMode = 'game-over';
+                this.currentIndex = 0;
+                this.renderMinesweeperGame();
+            }
+        } else {
+            // Update play area to 5x5 centered on this square
+            this.updatePlayAreaAfterAction(this.selectedRow, this.selectedCol);
+            
+            // Re-render board and return to row selection
+            this.resetRowSelection();
+        }
+    }
+    
+    handleFlagAction() {
+        this.minesweeperGame.toggleFlag(this.selectedRow, this.selectedCol);
+        
+        // Update play area to 7x7 centered on this square
+        this.updatePlayAreaAfterAction(this.selectedRow, this.selectedCol);
+        
+        // Re-render board and return to row selection
+        this.resetRowSelection();
+    }
+    
+    exitMinesweeperGame() {
+        this.minesweeperMode = false;
+        this.minesweeperGame = null;
+        this.gameMode = 'row-selection';
+        this.selectedRow = null;
+        this.selectedCol = null;
+        this.selectedDifficulty = null;
+        this.selectedBoardSize = null;
+        this.playAreaStartRow = null;
+        this.playAreaEndRow = null;
+        this.playAreaStartCol = null;
+        this.playAreaEndCol = null;
+        this.lastActionRow = null;
+        this.lastActionCol = null;
+        if (this.rowSelectionTimeout) {
+            clearTimeout(this.rowSelectionTimeout);
+            this.rowSelectionTimeout = null;
+        }
+        this.navigateTo('games');
     }
     
     decreaseSetting() {
@@ -460,11 +614,554 @@ class MenuApp {
     }
     
     navigateBack() {
+        if (this.minesweeperMode) {
+            // Exit game mode
+            this.minesweeperMode = false;
+            this.minesweeperGame = null;
+            this.selectedDifficulty = null;
+            this.selectedBoardSize = null;
+            this.navigateTo('games');
+            return;
+        }
+        
         if (this.menuStack.length > 0) {
             this.currentMenu = this.menuStack.pop();
             this.renderMenu();
         }
         this.resetBlinkState();
+    }
+    
+    startMinesweeperGame() {
+        // Initialize game engine
+        this.minesweeperGame = new MinesweeperEngine(
+            this.selectedDifficulty,
+            this.selectedBoardSize
+        );
+        
+        // Enter game mode
+        this.minesweeperMode = true;
+        this.gameMode = 'row-selection';
+        this.selectedRow = null;
+        this.selectedCol = null;
+        this.currentMenu = 'minesweeper-game';
+        this.currentIndex = 0;
+        
+        // Initialize play area to full board (no 5x5 constraint yet)
+        this.playAreaStartRow = null;
+        this.playAreaEndRow = null;
+        this.playAreaStartCol = null;
+        this.playAreaEndCol = null;
+        this.lastActionRow = null;
+        this.lastActionCol = null;
+        
+        // Clear menu stack for game
+        this.menuStack = [];
+        
+        // Render game board
+        this.renderMinesweeperGame();
+    }
+    
+    // Calculate 5x5 play area centered on a square, keeping within board bounds
+    calculatePlayArea(centerRow, centerCol, boardRows, boardCols) {
+        const size = 5;
+        const halfSize = Math.floor(size / 2); // 2
+        
+        let startRow = centerRow - halfSize;
+        let endRow = centerRow + halfSize;
+        let startCol = centerCol - halfSize;
+        let endCol = centerCol + halfSize;
+        
+        // Clamp to board bounds
+        if (startRow < 0) {
+            endRow += Math.abs(startRow);
+            startRow = 0;
+        }
+        if (endRow >= boardRows) {
+            startRow -= (endRow - boardRows + 1);
+            endRow = boardRows - 1;
+        }
+        if (startCol < 0) {
+            endCol += Math.abs(startCol);
+            startCol = 0;
+        }
+        if (endCol >= boardCols) {
+            startCol -= (endCol - boardCols + 1);
+            endCol = boardCols - 1;
+        }
+        
+        // Ensure we don't go out of bounds after adjustments
+        startRow = Math.max(0, startRow);
+        endRow = Math.min(boardRows - 1, endRow);
+        startCol = Math.max(0, startCol);
+        endCol = Math.min(boardCols - 1, endCol);
+        
+        return { startRow, endRow, startCol, endCol };
+    }
+    
+    // Update play area after an action
+    updatePlayAreaAfterAction(row, col) {
+        const boardState = this.minesweeperGame.getBoardState();
+        const playArea = this.calculatePlayArea(row, col, boardState.rows, boardState.cols);
+        this.playAreaStartRow = playArea.startRow;
+        this.playAreaEndRow = playArea.endRow;
+        this.playAreaStartCol = playArea.startCol;
+        this.playAreaEndCol = playArea.endCol;
+        this.lastActionRow = row;
+        this.lastActionCol = col;
+    }
+    
+    renderMinesweeperGame() {
+        const menuContainer = document.getElementById('menu-container');
+        if (!this.minesweeperGame) return;
+        
+        // Clear existing content
+        if (menuContainer) {
+            menuContainer.innerHTML = '';
+        }
+        
+        const boardState = this.minesweeperGame.getBoardState();
+        
+        // Create container structure
+        const container = document.createElement('div');
+        container.id = 'menu-container';
+        
+        // Calculate selected and highlighted areas based on game mode
+        let selectedStartRow = null, selectedEndRow = null;
+        let selectedStartCol = null, selectedEndCol = null;
+        let highlightedStartRow = null, highlightedEndRow = null;
+        let highlightedStartCol = null, highlightedEndCol = null;
+        
+        // Determine the selection area (play area or full board)
+        const selectionAreaStartRow = this.playAreaStartRow !== null ? this.playAreaStartRow : 0;
+        const selectionAreaEndRow = this.playAreaEndRow !== null ? this.playAreaEndRow : boardState.rows - 1;
+        const selectionAreaStartCol = this.playAreaStartCol !== null ? this.playAreaStartCol : 0;
+        const selectionAreaEndCol = this.playAreaEndCol !== null ? this.playAreaEndCol : boardState.cols - 1;
+        
+        if (this.gameMode === 'row-selection') {
+            // Selected area: the play area (or full board if no play area)
+            selectedStartRow = selectionAreaStartRow;
+            selectedEndRow = selectionAreaEndRow;
+            selectedStartCol = selectionAreaStartCol;
+            selectedEndCol = selectionAreaEndCol;
+            
+            // Get available rows and board actions
+            const availableRows = this.getAvailableRows(boardState);
+            const boardActionsCount = this.boardActions ? this.boardActions.length : 0;
+            const totalOptions = availableRows.length + boardActionsCount;
+            
+            // Ensure currentIndex is within bounds
+            if (this.currentIndex >= totalOptions) {
+                this.currentIndex = 0;
+            }
+            
+            // Check if we're highlighting a row or a board action
+            if (this.currentIndex < availableRows.length) {
+                // Highlighting a row - clear board action highlights
+                const actionEls = document.querySelectorAll('#board-actions .menu-option');
+                actionEls.forEach((el) => {
+                    el.classList.remove('highlighted');
+                });
+                
+                const highlightedRowIndex = availableRows[this.currentIndex];
+                highlightedStartRow = highlightedRowIndex;
+                highlightedEndRow = highlightedRowIndex;
+                highlightedStartCol = selectionAreaStartCol;
+                highlightedEndCol = selectionAreaEndCol;
+            } else {
+                // Highlighting a board action (Zoom Out or Exit Game)
+                // Clear row highlight
+                highlightedStartRow = null;
+                highlightedEndRow = null;
+                highlightedStartCol = null;
+                highlightedEndCol = null;
+                
+                // Update highlight on board actions
+                const actionIndex = this.currentIndex - availableRows.length;
+                const actionEls = document.querySelectorAll('#board-actions .menu-option');
+                actionEls.forEach((el, idx) => {
+                    if (idx === actionIndex) {
+                        el.classList.add('highlighted');
+                    } else {
+                        el.classList.remove('highlighted');
+                    }
+                });
+            }
+        } else if (this.gameMode === 'column-selection') {
+            // Selected area: the part of selected row within the play area
+            if (this.selectedRow !== null) {
+                selectedStartRow = this.selectedRow;
+                selectedEndRow = this.selectedRow;
+                selectedStartCol = selectionAreaStartCol;
+                selectedEndCol = selectionAreaEndCol;
+                
+                // Highlighted area: currently highlighted column within selection area
+                const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
+                if (this.currentIndex < availableCols.length) {
+                    const highlightedColIndex = availableCols[this.currentIndex];
+                    highlightedStartRow = this.selectedRow;
+                    highlightedEndRow = this.selectedRow;
+                    highlightedStartCol = highlightedColIndex;
+                    highlightedEndCol = highlightedColIndex;
+                }
+            }
+        } else if (this.gameMode === 'action-menu') {
+            // Selected area: the selected square
+            if (this.selectedRow !== null && this.selectedCol !== null) {
+                selectedStartRow = this.selectedRow;
+                selectedEndRow = this.selectedRow;
+                selectedStartCol = this.selectedCol;
+                selectedEndCol = this.selectedCol;
+                // No highlighted area in action-menu mode
+            }
+        } else if (this.gameMode === 'game-over') {
+            // No selected or highlighted areas in game-over mode
+            // Just show the board with revealed mines
+        }
+        
+        // Create game board (always visible)
+        const board = createMinesweeperBoard({
+            rows: boardState.rows,
+            cols: boardState.cols,
+            board: boardState.board,
+            revealed: boardState.revealed,
+            flagged: boardState.flagged,
+            selectedStartRow,
+            selectedEndRow,
+            selectedStartCol,
+            selectedEndCol,
+            highlightedStartRow,
+            highlightedEndRow,
+            highlightedStartCol,
+            highlightedEndCol
+        });
+        container.appendChild(board);
+        
+        // Create floating action menu below selected square (row/column selection happens on board)
+        if (this.gameMode === 'action-menu' && this.selectedRow !== null && this.selectedCol !== null) {
+            this.renderFloatingActionMenu(container, boardState);
+        }
+        
+        // Add game over menu or board actions below the board
+        if (this.gameMode === 'game-over') {
+            this.renderGameOverMenu(container, boardState);
+        } else {
+            // Add Zoom Out and Exit Game options below the board
+            this.renderBoardActions(container, boardState);
+        }
+        
+        // Replace existing menu container
+        if (menuContainer) {
+            menuContainer.replaceWith(container);
+        } else {
+            const app = document.getElementById('app');
+            if (app) {
+                app.appendChild(container);
+            }
+        }
+        
+        // Start auto-scroll for board-based selection
+        this.startGameAutoScroll();
+    }
+    
+    
+    renderFloatingActionMenu(container, boardState) {
+        const squareState = this.minesweeperGame.getSquareState(this.selectedRow, this.selectedCol);
+        
+        // Determine which actions are available
+        const canMine = !squareState.revealed && !squareState.flagged;
+        const canFlag = !squareState.revealed;
+        
+        // Create action menu options - Cancel is first
+        const actionOptions = [];
+        actionOptions.push({
+            id: 'exit',
+            title: 'Cancel',
+            isAction: true
+        });
+        if (canMine) {
+            actionOptions.push({
+                id: 'mine',
+                title: 'Mine',
+                isAction: true
+            });
+        }
+        if (canFlag) {
+            actionOptions.push({
+                id: 'flag',
+                title: 'Flag',
+                isAction: true
+            });
+        }
+        
+        // Store options for selection logic
+        this.options = actionOptions;
+        
+        // Calculate position of selected square
+        // Get the board element to find its position
+        const board = container.querySelector('.minesweeper-board');
+        if (!board) return;
+        
+        const squareSize = 40; // Each square is 40px
+        const gridBorder = 2; // Grid has 2px border
+        const menuOffset = 10; // Space between square and menu
+        
+        // Create floating menu container
+        const floatingMenu = document.createElement('div');
+        floatingMenu.className = 'minesweeper-floating-menu';
+        floatingMenu.id = 'menu-options';
+        floatingMenu.style.position = 'absolute';
+        floatingMenu.style.zIndex = '10';
+        
+        // Calculate position after board is rendered
+        // Use requestAnimationFrame to ensure board is laid out
+        requestAnimationFrame(() => {
+            const boardRect = board.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const boardOffsetLeft = boardRect.left - containerRect.left;
+            const boardOffsetTop = boardRect.top - containerRect.top;
+            
+            // Position relative to container (board offset + grid position)
+            const menuLeft = boardOffsetLeft + gridBorder + this.selectedCol * squareSize;
+            const menuTop = boardOffsetTop + gridBorder + (this.selectedRow + 1) * squareSize + menuOffset;
+            
+            floatingMenu.style.left = `${menuLeft}px`;
+            floatingMenu.style.top = `${menuTop}px`;
+        });
+        
+        // Create menu options
+        const optionsContainer = document.createElement('div');
+        optionsContainer.className = 'menu-options';
+        optionsContainer.style.display = 'flex';
+        optionsContainer.style.flexDirection = 'column';
+        optionsContainer.style.gap = '8px';
+        
+        actionOptions.forEach((option, index) => {
+            const optionEl = createMenuOption({
+                title: option.title,
+                subtitle: '', // No subtitle
+                highlighted: index === this.currentIndex,
+                progress: 0
+            });
+            optionEl.dataset.index = index;
+            optionsContainer.appendChild(optionEl);
+        });
+        
+        floatingMenu.appendChild(optionsContainer);
+        container.appendChild(floatingMenu);
+    }
+    
+    renderBoardActions(container, boardState) {
+        // Create actions container below board
+        const actionsContainer = document.createElement('div');
+        actionsContainer.className = 'minesweeper-board-actions';
+        actionsContainer.id = 'board-actions';
+        
+        // Zoom Out is only available when 5x5 play area is active
+        const canZoomOut = this.playAreaStartRow !== null;
+        
+        // Create action options
+        const actionOptions = [];
+        if (canZoomOut) {
+            actionOptions.push({
+                id: 'zoom-out',
+                title: 'Zoom Out',
+                isZoomOut: true
+            });
+        }
+        actionOptions.push({
+            id: 'exit-game',
+            title: 'Exit Game',
+            isExitGame: true
+        });
+        
+        // Store board actions for selection logic
+        this.boardActions = actionOptions;
+        
+        // Create menu options
+        const optionsContainer = document.createElement('div');
+        optionsContainer.className = 'menu-options';
+        optionsContainer.style.display = 'flex';
+        optionsContainer.style.flexDirection = 'column';
+        optionsContainer.style.gap = '8px';
+        
+        actionOptions.forEach((option, index) => {
+            const optionEl = createMenuOption({
+                title: option.title,
+                subtitle: '',
+                highlighted: false, // Will be updated by auto-scroll
+                progress: 0
+            });
+            optionEl.dataset.index = index;
+            optionEl.dataset.actionId = option.id;
+            optionsContainer.appendChild(optionEl);
+        });
+        
+        actionsContainer.appendChild(optionsContainer);
+        container.appendChild(actionsContainer);
+    }
+    
+    renderGameOverMenu(container, boardState) {
+        // Create game over menu container
+        const menuContainer = document.createElement('div');
+        menuContainer.className = 'minesweeper-game-over-menu';
+        menuContainer.id = 'menu-options';
+        
+        // Create menu options
+        const gameOverOptions = [
+            {
+                id: 'play-again',
+                title: 'Play Again',
+                isAction: true
+            },
+            {
+                id: 'exit-game',
+                title: 'Exit Game',
+                isExitGame: true
+            }
+        ];
+        
+        // Store options for selection logic
+        this.options = gameOverOptions;
+        
+        const optionsContainer = document.createElement('div');
+        optionsContainer.className = 'menu-options';
+        optionsContainer.style.display = 'flex';
+        optionsContainer.style.flexDirection = 'column';
+        optionsContainer.style.gap = '8px';
+        
+        gameOverOptions.forEach((option, index) => {
+            const optionEl = createMenuOption({
+                title: option.title,
+                subtitle: '',
+                highlighted: index === this.currentIndex,
+                progress: 0
+            });
+            optionEl.dataset.index = index;
+            optionEl.dataset.actionId = option.id;
+            optionsContainer.appendChild(optionEl);
+        });
+        
+        menuContainer.appendChild(optionsContainer);
+        container.appendChild(menuContainer);
+    }
+    
+    getAvailableRows(boardState) {
+        const availableRows = [];
+        const startRow = this.playAreaStartRow !== null ? this.playAreaStartRow : 0;
+        const endRow = this.playAreaEndRow !== null ? this.playAreaEndRow : boardState.rows - 1;
+        const startCol = this.playAreaStartCol !== null ? this.playAreaStartCol : 0;
+        const endCol = this.playAreaEndCol !== null ? this.playAreaEndCol : boardState.cols - 1;
+        
+        for (let row = startRow; row <= endRow; row++) {
+            // Check if row has at least one unrevealed square within the play area
+            let hasUnrevealed = false;
+            for (let col = startCol; col <= endCol; col++) {
+                if (!boardState.revealed[row][col]) {
+                    hasUnrevealed = true;
+                    break;
+                }
+            }
+            if (hasUnrevealed) {
+                availableRows.push(row);
+            }
+        }
+        return availableRows;
+    }
+    
+    getAvailableColumns(boardState, row) {
+        if (row === null) return [];
+        const availableCols = [];
+        const startCol = this.playAreaStartCol !== null ? this.playAreaStartCol : 0;
+        const endCol = this.playAreaEndCol !== null ? this.playAreaEndCol : boardState.cols - 1;
+        
+        for (let col = startCol; col <= endCol; col++) {
+            if (!boardState.revealed[row][col]) {
+                availableCols.push(col);
+            }
+        }
+        return availableCols;
+    }
+    
+    startGameAutoScroll() {
+        if (this.scrollInterval) {
+            clearInterval(this.scrollInterval);
+        }
+        
+        this.scrollInterval = setInterval(() => {
+            if (!this.isSelecting && this.minesweeperMode) {
+                if (this.gameMode === 'row-selection' || this.gameMode === 'column-selection') {
+                    // For board-based selection, just update the index and re-render
+                    const boardState = this.minesweeperGame.getBoardState();
+                if (this.gameMode === 'row-selection') {
+                    const availableRows = this.getAvailableRows(boardState);
+                    const boardActionsCount = this.boardActions ? this.boardActions.length : 0;
+                    const totalOptions = availableRows.length + boardActionsCount;
+                    if (totalOptions > 0) {
+                        // Move to next option, but don't loop - go to board actions after last row
+                        this.currentIndex++;
+                        if (this.currentIndex >= totalOptions) {
+                            // After last board action, loop back to first row
+                            this.currentIndex = 0;
+                        }
+                        this.renderMinesweeperGame();
+                    }
+                } else if (this.gameMode === 'column-selection') {
+                    const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
+                    if (availableCols.length > 0) {
+                        // Move to next column, but don't loop - after last column, it will timeout
+                        this.currentIndex++;
+                        if (this.currentIndex >= availableCols.length) {
+                            // After last column, loop back to first
+                            this.currentIndex = 0;
+                        }
+                        this.renderMinesweeperGame();
+                    }
+                }
+                } else if (this.gameMode === 'action-menu' || this.gameMode === 'game-over') {
+                    // For action menu and game over menu, use regular menu highlighting
+                    const optionEls = document.querySelectorAll('#menu-options .menu-option');
+                    if (optionEls.length > 0) {
+                        this.currentIndex = (this.currentIndex + 1) % optionEls.length;
+                        this.updateGameHighlight();
+                    }
+                }
+            }
+        }, this.scrollSpeed * 1000);
+    }
+    
+    updateGameHighlight() {
+        const optionEls = document.querySelectorAll('#menu-options .menu-option');
+        optionEls.forEach((el, index) => {
+            if (index === this.currentIndex) {
+                el.classList.add('highlighted');
+            } else {
+                el.classList.remove('highlighted');
+            }
+        });
+    }
+    
+    startRowSelectionTimeout() {
+        // Clear existing timeout
+        if (this.rowSelectionTimeout) {
+            clearTimeout(this.rowSelectionTimeout);
+        }
+        
+        // Set timeout for 5 seconds
+        this.rowSelectionTimeout = setTimeout(() => {
+            this.resetRowSelection();
+        }, 5000);
+    }
+    
+    resetRowSelection() {
+        this.selectedRow = null;
+        this.selectedCol = null;
+        this.gameMode = 'row-selection';
+        this.currentIndex = 0;
+        if (this.rowSelectionTimeout) {
+            clearTimeout(this.rowSelectionTimeout);
+            this.rowSelectionTimeout = null;
+        }
+        this.renderMinesweeperGame();
     }
     
     resetBlinkState() {
@@ -481,7 +1178,65 @@ class MenuApp {
         if (this.isSelecting) return;
         if (!this.eyesWereOpen) return; // Don't start if eyes weren't open first
         
-        const optionEls = document.querySelectorAll('.menu-option');
+        // For board-based selection (row/column), we don't need progress indicators
+        // The selection happens directly on the board
+        if (this.minesweeperMode && (this.gameMode === 'row-selection' || this.gameMode === 'column-selection')) {
+            // Check if we're selecting a board action that needs special hold time
+            let holdTime = this.blinkThreshold;
+            if (this.gameMode === 'row-selection') {
+                const boardState = this.minesweeperGame.getBoardState();
+                const availableRows = this.getAvailableRows(boardState);
+                if (this.currentIndex >= availableRows.length && this.boardActions) {
+                    // Selecting a board action
+                    const actionIndex = this.currentIndex - availableRows.length;
+                    if (actionIndex < this.boardActions.length) {
+                        const action = this.boardActions[actionIndex];
+                        if (action.isExitGame) {
+                            holdTime = this.exitGameHoldTime; // 2 seconds for Exit Game
+                        }
+                    }
+                }
+            }
+            
+            // Board-based selection - no progress indicator needed
+            this.isSelecting = true;
+            this.selectionProgress = 0;
+            this.selectionStartTime = Date.now();
+            
+            const animate = () => {
+                if (!this.isSelecting) {
+                    this.cancelSelection();
+                    return;
+                }
+                
+                const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                this.selectionProgress = Math.min(elapsed / holdTime, 1);
+                
+                // Update progress fill on highlighted area
+                this.updateHighlightedAreaProgress(this.selectionProgress);
+                
+                if (this.selectionProgress >= 1) {
+                    // Selection complete
+                    this.cancelSelection();
+                    this.handleGameSelection();
+                    this.resetBlinkState();
+                } else {
+                    this.selectionAnimationFrame = requestAnimationFrame(animate);
+                }
+            };
+            
+            this.selectionAnimationFrame = requestAnimationFrame(animate);
+            return;
+        }
+        
+        // For menu-based selection (action menu or regular menus), use progress indicators
+        let optionEls;
+        if (this.minesweeperMode) {
+            optionEls = document.querySelectorAll('#menu-options .menu-option');
+        } else {
+            optionEls = document.querySelectorAll('.menu-option');
+        }
+        
         if (this.currentIndex >= optionEls.length) return;
         
         const optionEl = optionEls[this.currentIndex];
@@ -489,6 +1244,19 @@ class MenuApp {
         
         // Don't start selection if there's no progress fill (e.g., value display)
         if (!progressFill) return;
+        
+        // Determine hold time based on context
+        let holdTime = this.blinkThreshold;
+        if (this.minesweeperMode) {
+            if ((this.gameMode === 'action-menu' || this.gameMode === 'game-over') && this.options[this.currentIndex]) {
+                const option = this.options[this.currentIndex];
+                if (option.isAction) {
+                    holdTime = this.actionMenuHoldTime;
+                } else if (option.isExitGame) {
+                    holdTime = this.exitGameHoldTime;
+                }
+            }
+        }
         
         this.isSelecting = true;
         this.selectionProgress = 0;
@@ -501,10 +1269,15 @@ class MenuApp {
             }
             
             const elapsed = (Date.now() - this.selectionStartTime) / 1000;
-            this.selectionProgress = Math.min(elapsed / this.blinkThreshold, 1);
+            this.selectionProgress = Math.min(elapsed / holdTime, 1);
             
             if (progressFill) {
                 progressFill.style.width = (this.selectionProgress * 100) + '%';
+            }
+            
+            // Also update highlighted area progress if in board-based selection
+            if (this.minesweeperMode && (this.gameMode === 'row-selection' || this.gameMode === 'column-selection')) {
+                this.updateHighlightedAreaProgress(this.selectionProgress);
             }
             
             if (this.selectionProgress >= 1) {
@@ -536,6 +1309,20 @@ class MenuApp {
                 progressFill.style.width = '0%';
             }
         });
+        
+        // Clear highlighted area progress
+        this.updateHighlightedAreaProgress(0);
+    }
+    
+    updateHighlightedAreaProgress(progress) {
+        // Update progress fill on the highlighted area (row or square)
+        const highlightedArea = document.querySelector('.minesweeper-highlighted-area');
+        if (highlightedArea) {
+            const progressFill = highlightedArea.querySelector('.minesweeper-highlighted-progress');
+            if (progressFill) {
+                progressFill.style.width = `${progress * 100}%`;
+            }
+        }
     }
     
     // Blink Detection Methods
