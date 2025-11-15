@@ -1,11 +1,11 @@
 // Service Worker for offline functionality
 const CACHE_NAME = 'blink-companion-v1';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/styles.css',
-  '/manifest.json',
+  './',
+  './index.html',
+  './app.js',
+  './styles.css',
+  './manifest.json',
   'https://fonts.googleapis.com/css2?family=Comic+Relief:wght@400;700&display=swap',
   'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js',
   'https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js',
@@ -70,7 +70,7 @@ self.addEventListener('fetch', (event) => {
       .catch(() => {
         // If both cache and network fail, return offline page if available
         if (event.request.destination === 'document') {
-          return caches.match('/index.html');
+          return caches.match('./index.html');
         }
       })
   );

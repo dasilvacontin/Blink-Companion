@@ -3177,7 +3177,9 @@ class MenuApp {
 // Register Service Worker for offline functionality
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
+        // Use current location to determine service worker path
+        const swPath = new URL('sw.js', window.location.href).pathname;
+        navigator.serviceWorker.register(swPath)
             .then((registration) => {
                 console.log('Service Worker registered:', registration.scope);
             })
