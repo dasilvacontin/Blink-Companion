@@ -9,12 +9,12 @@ export class MinesweeperEngine {
         
         // Map board size names to dimensions
         const sizeMap = {
-            'small': { rows: 7, cols: 7 },
+            'small': { rows: 5, cols: 5 },
             'medium': { rows: 9, cols: 9 },
             'large': { rows: 16, cols: 9 } // 9 width, 16 tall
         };
         
-        const dimensions = sizeMap[boardSize] || { rows: 7, cols: 7 };
+        const dimensions = sizeMap[boardSize] || { rows: 5, cols: 5 };
         this.rows = dimensions.rows;
         this.cols = dimensions.cols;
         

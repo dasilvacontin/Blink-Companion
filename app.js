@@ -41,6 +41,7 @@ class MenuApp {
         this.minesweeperGame = null;
         this.minesweeperMode = false; // Whether we're in game mode
         this.gameMode = 'row-selection'; // 'row-selection', 'column-selection', 'square-selection', 'game-over'
+        this.confettiInstance = null; // Confetti instance for win celebrations
         this.selectedRow = null;
         this.selectedCol = null;
         this.actionColumn = null; // Column being acted on during column selection
@@ -139,6 +140,68 @@ class MenuApp {
         return urlParams.has('skipLockscreen');
     }
     
+    triggerMinesweeperConfetti() {
+        // Trigger confetti celebration when winning Minesweeper
+        try {
+            // Use canvas-confetti library (more reliable and well-documented)
+            if (typeof confetti !== 'undefined') {
+                // Trigger confetti from multiple positions for better effect
+                const duration = 3000; // 3 seconds
+                const end = Date.now() + duration;
+                
+                const interval = setInterval(() => {
+                    if (Date.now() > end) {
+                        clearInterval(interval);
+                        return;
+                    }
+                    
+                    // Confetti from left
+                    confetti({
+                        particleCount: 2,
+                        angle: 60,
+                        spread: 55,
+                        origin: { x: 0 },
+                        colors: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8']
+                    });
+                    
+                    // Confetti from right
+                    confetti({
+                        particleCount: 2,
+                        angle: 120,
+                        spread: 55,
+                        origin: { x: 1 },
+                        colors: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8']
+                    });
+                }, 25);
+                
+                // Also trigger a big burst from center
+                confetti({
+                    particleCount: 50,
+                    spread: 70,
+                    origin: { y: 0.6 },
+                    colors: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8']
+                });
+                
+                console.log('Confetti triggered successfully!');
+            } else if (typeof window.confetti !== 'undefined') {
+                // Try window.confetti
+                window.confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+                console.log('Confetti triggered (window.confetti)!');
+            } else {
+                console.error('Confetti library not loaded. Available:', {
+                    'confetti': typeof confetti,
+                    'window.confetti': typeof window.confetti
+                });
+            }
+        } catch (error) {
+            console.error('Error triggering confetti:', error);
+        }
+    }
+    
     loadSettings() {
         const savedScrollSpeed = localStorage.getItem('scrollSpeed');
         const savedBlinkThreshold = localStorage.getItem('blinkThreshold');
@@ -229,6 +292,10 @@ class MenuApp {
                 { id: 'scroll-speed', title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '' },
                 { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' }
             ],
+            debug: [
+                { id: 'back', title: 'Back', subtitle: '' },
+                { id: 'trigger-confetti', title: 'Trigger Confetti', subtitle: 'Test the confetti celebration effect' }
+            ],
             'scroll-speed': [
                 { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'decrease', title: '- Decrease -', subtitle: '' },
@@ -258,6 +325,18 @@ class MenuApp {
         const menuTitleEl = document.getElementById('menu-title');
         const menuOptions = document.getElementById('menu-options');
         
+        // Add/remove debug option from settings menu based on debug mode
+        if (this.currentMenu === 'settings' && this.menus.settings) {
+            const hasDebugOption = this.menus.settings.some(opt => opt.id === 'debug');
+            if (this.debugMode && !hasDebugOption) {
+                // Add debug option if in debug mode and it doesn't exist
+                this.menus.settings.push({ id: 'debug', title: 'Debug', subtitle: 'Debug tools and options' });
+            } else if (!this.debugMode && hasDebugOption) {
+                // Remove debug option if not in debug mode
+                this.menus.settings = this.menus.settings.filter(opt => opt.id !== 'debug');
+            }
+        }
+        
         // Get options for current menu
         this.options = this.menus[this.currentMenu] || [];
         this.currentIndex = 0;
@@ -283,6 +362,7 @@ class MenuApp {
                 'minesweeper': 'Minesweeper',
                 'minesweeper-settings': 'Minesweeper Settings',
                 'settings': 'Settings',
+                'debug': 'Debug',
                 'lock': 'Rest'
             };
             titleText = titleMap[this.currentMenu] || 'Menu';
@@ -301,14 +381,10 @@ class MenuApp {
         
         // Special handling for lock screen - use LockScreen component
         if (this.currentMenu === 'lock' || this.isLocked) {
-            // Show camera overlay only in debug mode
+            // Always hide camera overlay (never show video feed)
             const cameraOverlay = document.getElementById('camera-overlay');
             if (cameraOverlay) {
-                if (this.debugMode) {
-                    cameraOverlay.classList.remove('hidden');
-                } else {
-                    cameraOverlay.classList.add('hidden');
-                }
+                cameraOverlay.classList.add('hidden');
             }
             
             // Check if lock screen already exists
@@ -654,6 +730,12 @@ class MenuApp {
             // Store selected board size and start game
             this.selectedBoardSize = option.id;
             this.startMinesweeperGame();
+        } else if (option.id === 'debug') {
+            // Navigate to debug menu
+            this.navigateTo('debug');
+        } else if (option.id === 'trigger-confetti') {
+            // Trigger confetti for testing
+            this.triggerMinesweeperConfetti();
         } else {
             this.navigateTo(option.id);
         }
@@ -778,6 +860,9 @@ class MenuApp {
             }
             
             if (result.won) {
+                // Trigger confetti celebration
+                this.triggerMinesweeperConfetti();
+                
                 // Handle win - show win menu
                 this.gameMode = 'game-over';
                 this.currentIndex = 0;
@@ -811,6 +896,9 @@ class MenuApp {
         
         // Check if flagging resulted in a win
         if (result.gameOver && result.won) {
+            // Trigger confetti celebration
+            this.triggerMinesweeperConfetti();
+            
             // Game is finished - clear saved state
             localStorage.removeItem('minesweeperGameState');
             this.gameInProgress = false;
@@ -1863,6 +1951,9 @@ class MenuApp {
                             
                             // Check if flagging resulted in a win
                             if (flagResult.gameOver && flagResult.won) {
+                                // Trigger confetti celebration
+                                this.triggerMinesweeperConfetti();
+                                
                                 // Game is finished - clear saved state
                                 localStorage.removeItem('minesweeperGameState');
                                 this.gameInProgress = false;
@@ -1950,6 +2041,9 @@ class MenuApp {
                             
                             // Check if flagging resulted in a win
                             if (flagResult.gameOver && flagResult.won) {
+                                // Trigger confetti celebration
+                                this.triggerMinesweeperConfetti();
+                                
                                 // Game is finished - clear saved state
                                 localStorage.removeItem('minesweeperGameState');
                                 this.gameInProgress = false;
@@ -2365,6 +2459,9 @@ class MenuApp {
             }
             
             if (result.won) {
+                // Trigger confetti celebration
+                this.triggerMinesweeperConfetti();
+                
                 // Handle win - show win menu
                 this.gameMode = 'game-over';
                 this.currentIndex = 0;
@@ -2740,9 +2837,9 @@ class MenuApp {
         this.sosRequireEyesOpen = false; // Reset the flag
         this.clearFailureTimeout();
         
-        // Hide camera overlay when unlocked (unless in debug mode)
+        // Always hide camera overlay when unlocked
         const cameraOverlay = document.getElementById('camera-overlay');
-        if (cameraOverlay && !this.debugMode) {
+        if (cameraOverlay) {
             cameraOverlay.classList.add('hidden');
         }
         
