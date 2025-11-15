@@ -1689,7 +1689,7 @@ class MenuApp {
                     
                     // Use blink threshold for hold time to mine
                     const holdTime = this.blinkThreshold;
-                    const flagToggleThreshold = 0.5; // Toggle flag at 50% of hold time
+                    const flagToggleThreshold = 1/3; // Toggle flag at 1/3 of hold time
                     
                     // Store the square we're acting on
                     this.actionSquare = highlightedSquare;
@@ -1752,7 +1752,7 @@ class MenuApp {
                     
                     // Use blink threshold for hold time to mine
                     const holdTime = this.blinkThreshold;
-                    const flagToggleThreshold = 0.5; // Toggle flag at 50% of hold time
+                    const flagToggleThreshold = 1/3; // Toggle flag at 1/3 of hold time
                     
                     // Store the column we're acting on
                     this.actionColumn = highlightedCol;
