@@ -21,8 +21,8 @@ const RIGHT_EYE_POINTS = {
 
 // Configuration
 const DEFAULT_EAR_THRESHOLD = 0.15; // Lower default for better mobile detection
-const DEFAULT_SCROLL_SPEED = 0.6; // seconds
-const DEFAULT_BLINK_THRESHOLD = 0.7; // seconds
+const DEFAULT_SCROLL_SPEED = 0.7; // seconds
+const DEFAULT_BLINK_THRESHOLD = 1.0; // seconds
 
 class MenuApp {
     constructor() {
@@ -469,7 +469,7 @@ class MenuApp {
                 title: titleText,
                 options: containerOptions,
                 highlightedIndex: 0,
-                isSettings: this.currentMenu === 'settings'
+                isSettings: this.currentMenu === 'settings' || this.currentMenu === 'minesweeper-settings'
             });
             
             // Replace the existing menu structure
@@ -2931,11 +2931,7 @@ class MenuApp {
         menuContainerEl.className = 'calibration-screen';
         menuContainerEl.style.cssText = 'width: 100%; max-width: 600px;';
         
-        const title = document.createElement('h1');
-        title.className = 'menu-title';
-        title.textContent = 'Calibrate Blink Detection';
-        menuContainerEl.appendChild(title);
-        
+
         const stepTitle = document.createElement('h2');
         stepTitle.className = 'calibration-step-title';
         stepTitle.textContent = currentStepName;
