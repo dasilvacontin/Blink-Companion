@@ -44,7 +44,8 @@ class MenuApp {
         this.actionColumn = null; // Column being acted on during column selection
         this.actionMenuHoldTime = 0.5; // 0.5 seconds for action menu
         this.exitGameHoldTime = 2.0; // 2 seconds for exit game
-        // 5x5 play area (null means full board)
+        this.focusAreaSize = 5; // Default focus area size (3x3, 5x5, 7x7, 9x9)
+        // Play area (null means full board)
         this.playAreaStartRow = null;
         this.playAreaEndRow = null;
         this.playAreaStartCol = null;
@@ -53,6 +54,7 @@ class MenuApp {
         this.lastActionCol = null; // Col of last action (mine or flag)
         this.boardActions = null; // Board actions (Zoom Out, Exit Game)
         this.columnSelectionStartIndex = null; // Track where column selection started to detect full cycle
+        this.gameInProgress = false; // Whether there's a game that can be resumed
         
         // Selection state
         this.isSelecting = false;
@@ -136,7 +138,20 @@ class MenuApp {
                 { id: 'minesweeper', title: 'Minesweeper', subtitle: 'Classic minesweeper game' }
             ],
             'minesweeper': [
-                { id: 'back', title: 'Back', subtitle: '' }
+                { id: 'back', title: 'Back', subtitle: '' },
+                { id: 'new-game', title: 'New Game', subtitle: '' },
+                { id: 'resume-game', title: 'Resume Game', subtitle: '' },
+                { id: 'minesweeper-settings', title: 'Settings', subtitle: 'Focus area size' }
+            ],
+            'minesweeper-settings': [
+                { id: 'back', title: 'Back', subtitle: '' },
+                { id: 'focus-area-size', title: 'Focus Area Size', subtitle: '', value: '' }
+            ],
+            'minesweeper-focus-area-size': [
+                { id: 'back', title: 'Back', subtitle: '' },
+                { id: 'decrease', title: '- Decrease -', subtitle: '' },
+                { id: 'value', title: '', subtitle: '' }, // Will be populated dynamically
+                { id: 'increase', title: '+ Increase +', subtitle: '' }
             ],
             'minesweeper-difficulty': [
                 { id: 'back', title: 'Back', subtitle: '' },
@@ -194,6 +209,8 @@ class MenuApp {
             titleText = 'Settings / Scroll Speed';
         } else if (this.currentMenu === 'blink-threshold') {
             titleText = 'Settings / Blink threshold';
+        } else if (this.currentMenu === 'minesweeper-focus-area-size') {
+            titleText = 'Minesweeper Settings / Focus Area Size';
         } else if (this.currentMenu === 'minesweeper-difficulty') {
             titleText = 'Select Difficulty';
         } else if (this.currentMenu === 'minesweeper-board-size') {
@@ -205,6 +222,7 @@ class MenuApp {
                 'saved-text': 'Saved text',
                 'games': 'Games',
                 'minesweeper': 'Minesweeper',
+                'minesweeper-settings': 'Minesweeper Settings',
                 'settings': 'Settings',
                 'lock': 'Rest'
             };
@@ -245,8 +263,15 @@ class MenuApp {
         }
         
         // Special handling for settings detail pages - use SettingsDetail component
-        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
-            const currentValue = this.currentMenu === 'scroll-speed' ? this.scrollSpeed : this.blinkThreshold;
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size') {
+            let currentValue;
+            if (this.currentMenu === 'scroll-speed') {
+                currentValue = this.scrollSpeed;
+            } else if (this.currentMenu === 'blink-threshold') {
+                currentValue = this.blinkThreshold;
+            } else if (this.currentMenu === 'minesweeper-focus-area-size') {
+                currentValue = this.focusAreaSize;
+            }
             
             // Update title using MenuTitle component
             if (menuTitleEl) {
@@ -264,6 +289,17 @@ class MenuApp {
                 onIncrease: () => {}
             });
             
+            // For focus area size, update the value display format
+            if (this.currentMenu === 'minesweeper-focus-area-size') {
+                const valueEl = settingsDetail.querySelector('[data-id="value"]');
+                if (valueEl) {
+                    const titleEl = valueEl.querySelector('.menu-option-title');
+                    if (titleEl) {
+                        titleEl.textContent = `${currentValue}x${currentValue}`;
+                    }
+                }
+            }
+            
             // Append all options from SettingsDetail
             Array.from(settingsDetail.children).forEach((optionEl, index) => {
                 optionEl.dataset.index = index;
@@ -271,17 +307,36 @@ class MenuApp {
             });
             
             // Map the options for selection logic
-            this.options = [
-                { id: 'decrease', title: '- Decrease -', subtitle: '' },
-                { id: 'value', title: `${currentValue.toFixed(1)} s`, subtitle: '' },
-                { id: 'increase', title: '+ Increase +', subtitle: '' },
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
-            ];
+            if (this.currentMenu === 'minesweeper-focus-area-size') {
+                this.options = [
+                    { id: 'back', title: 'Back', subtitle: '' },
+                    { id: 'decrease', title: '- Decrease -', subtitle: '' },
+                    { id: 'value', title: `${currentValue}x${currentValue}`, subtitle: '' },
+                    { id: 'increase', title: '+ Increase +', subtitle: '' }
+                ];
+            } else {
+                this.options = [
+                    { id: 'decrease', title: '- Decrease -', subtitle: '' },
+                    { id: 'value', title: `${currentValue.toFixed(1)} s`, subtitle: '' },
+                    { id: 'increase', title: '+ Increase +', subtitle: '' },
+                    { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                ];
+            }
         } else {
             // Use MenuContainer component for regular menus
             // Update settings menu values dynamically before rendering
             if (this.currentMenu === 'settings') {
                 this.updateSettingsMenu();
+            } else if (this.currentMenu === 'minesweeper-settings') {
+                this.updateMinesweeperSettingsMenu();
+            } else if (this.currentMenu === 'minesweeper') {
+                // Filter out "Resume Game" if no game in progress
+                this.options = this.options.filter(opt => {
+                    if (opt.id === 'resume-game') {
+                        return this.gameInProgress && this.minesweeperGame !== null;
+                    }
+                    return true;
+                });
             }
             
             // Prepare options for MenuContainer
@@ -390,9 +445,17 @@ class MenuApp {
         if (option.id === 'back') {
             this.navigateBack();
         } else if (option.id === 'decrease') {
-            this.decreaseSetting();
+            if (this.currentMenu === 'minesweeper-focus-area-size') {
+                this.decreaseFocusAreaSize();
+            } else {
+                this.decreaseSetting();
+            }
         } else if (option.id === 'increase') {
-            this.increaseSetting();
+            if (this.currentMenu === 'minesweeper-focus-area-size') {
+                this.increaseFocusAreaSize();
+            } else {
+                this.increaseSetting();
+            }
         } else if (option.id === 'value') {
             // Value display is not selectable, skip to next
             return;
@@ -402,8 +465,24 @@ class MenuApp {
             this.currentMenu = 'lock';
             this.renderMenu();
         } else if (option.id === 'minesweeper') {
-            // Start Minesweeper setup flow
+            // Navigate to Minesweeper menu
+            this.navigateTo('minesweeper');
+        } else if (option.id === 'new-game') {
+            // Start new Minesweeper game setup flow
             this.navigateTo('minesweeper-difficulty');
+        } else if (option.id === 'resume-game') {
+            // Resume existing game
+            if (this.gameInProgress && this.minesweeperGame) {
+                this.minesweeperMode = true;
+                this.currentMenu = 'minesweeper-game';
+                this.renderMinesweeperGame();
+            }
+        } else if (option.id === 'minesweeper-settings') {
+            // Navigate to Minesweeper settings
+            this.navigateTo('minesweeper-settings');
+        } else if (option.id === 'focus-area-size') {
+            // Navigate to focus area size adjustment
+            this.navigateTo('minesweeper-focus-area-size');
         } else if (option.id === 'easy' || option.id === 'medium' || option.id === 'hard') {
             // Store selected difficulty and proceed to board size selection
             this.selectedDifficulty = option.id;
@@ -440,7 +519,7 @@ class MenuApp {
                 if (this.boardActions && actionIndex < this.boardActions.length) {
                     const action = this.boardActions[actionIndex];
                     if (action.id === 'zoom-out') {
-                        // Zoom out - remove 5x5 play area
+                        // Zoom out - remove play area (show full board)
                         this.playAreaStartRow = null;
                         this.playAreaEndRow = null;
                         this.playAreaStartCol = null;
@@ -462,8 +541,14 @@ class MenuApp {
             const option = this.options[this.currentIndex];
             if (option.id === 'play-again') {
                 // Restart the game with same settings
+                // Clear the old game first
+                this.minesweeperGame = null;
+                this.gameInProgress = false;
                 this.startMinesweeperGame();
             } else if (option.id === 'exit-game') {
+                // Clear game completely when exiting from game over
+                this.minesweeperGame = null;
+                this.gameInProgress = false;
                 this.exitMinesweeperGame();
             }
         }
@@ -493,7 +578,7 @@ class MenuApp {
                 this.renderMinesweeperGame();
             }
         } else {
-            // Update play area to 5x5 centered on this square
+            // Update play area to focus area size centered on this square
             this.updatePlayAreaAfterAction(this.selectedRow, this.selectedCol);
             
             // Re-render board and return to row selection
@@ -511,13 +596,11 @@ class MenuApp {
     }
     
     exitMinesweeperGame() {
+        // Don't clear minesweeperGame or gameInProgress - allow resuming
         this.minesweeperMode = false;
-        this.minesweeperGame = null;
         this.gameMode = 'row-selection';
         this.selectedRow = null;
         this.selectedCol = null;
-        this.selectedDifficulty = null;
-        this.selectedBoardSize = null;
         this.playAreaStartRow = null;
         this.playAreaEndRow = null;
         this.playAreaStartCol = null;
@@ -556,8 +639,8 @@ class MenuApp {
             existingContainer.replaceWith(menuContainer);
         }
         
-        // Navigate to games menu
-        this.currentMenu = 'games';
+        // Navigate to minesweeper menu (not games menu)
+        this.currentMenu = 'minesweeper';
         this.currentIndex = 0;
         this.renderMenu();
         this.resetBlinkState();
@@ -598,22 +681,37 @@ class MenuApp {
     
     updateValueDisplay() {
         // Update value display for settings detail pages without re-rendering entire menu
-        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
-            const currentValue = this.currentMenu === 'scroll-speed' ? this.scrollSpeed : this.blinkThreshold;
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size') {
+            let currentValue;
+            if (this.currentMenu === 'scroll-speed') {
+                currentValue = this.scrollSpeed;
+            } else if (this.currentMenu === 'blink-threshold') {
+                currentValue = this.blinkThreshold;
+            } else if (this.currentMenu === 'minesweeper-focus-area-size') {
+                currentValue = this.focusAreaSize;
+            }
             const menuOptions = document.getElementById('menu-options');
             if (menuOptions) {
                 const valueEl = Array.from(menuOptions.children).find(el => {
-                    return el.dataset.id === 'value';
+                    return el.dataset.id === 'value' || (el.querySelector('.menu-option-title') && this.options[Array.from(menuOptions.children).indexOf(el)]?.id === 'value');
                 });
                 if (valueEl) {
                     const titleEl = valueEl.querySelector('.menu-option-title');
                     if (titleEl) {
-                        titleEl.textContent = `${currentValue.toFixed(1)} s`;
+                        if (this.currentMenu === 'minesweeper-focus-area-size') {
+                            titleEl.textContent = `${currentValue}x${currentValue}`;
+                        } else {
+                            titleEl.textContent = `${currentValue.toFixed(1)} s`;
+                        }
                     }
                     // Update options array for selection logic
                     const valueOption = this.options.find(opt => opt.id === 'value');
                     if (valueOption) {
-                        valueOption.title = `${currentValue.toFixed(1)} s`;
+                        if (this.currentMenu === 'minesweeper-focus-area-size') {
+                            valueOption.title = `${currentValue}x${currentValue}`;
+                        } else {
+                            valueOption.title = `${currentValue.toFixed(1)} s`;
+                        }
                     }
                 }
             }
@@ -638,6 +736,31 @@ class MenuApp {
             if (blinkThresholdOption) {
                 blinkThresholdOption.value = `${this.blinkThreshold.toFixed(1)}s`;
             }
+        }
+    }
+    
+    updateMinesweeperSettingsMenu() {
+        if (this.menus['minesweeper-settings']) {
+            const focusAreaSizeOption = this.menus['minesweeper-settings'].find(opt => opt.id === 'focus-area-size');
+            if (focusAreaSizeOption) {
+                focusAreaSizeOption.value = `${this.focusAreaSize}x${this.focusAreaSize}`;
+            }
+        }
+    }
+    
+    decreaseFocusAreaSize() {
+        if (this.focusAreaSize > 3) {
+            // Decrease by 2 (3x3, 5x5, 7x7, 9x9)
+            this.focusAreaSize -= 2;
+            this.updateValueDisplay();
+        }
+    }
+    
+    increaseFocusAreaSize() {
+        if (this.focusAreaSize < 9) {
+            // Increase by 2 (3x3, 5x5, 7x7, 9x9)
+            this.focusAreaSize += 2;
+            this.updateValueDisplay();
         }
     }
     
@@ -678,7 +801,7 @@ class MenuApp {
         this.currentMenu = 'minesweeper-game';
         this.currentIndex = 0;
         
-        // Initialize play area to 5x5 centered on the board
+        // Initialize play area to focus area size centered on the board
         const boardState = this.minesweeperGame.getBoardState();
         const centerRow = Math.floor(boardState.rows / 2);
         const centerCol = Math.floor(boardState.cols / 2);
@@ -690,6 +813,9 @@ class MenuApp {
         this.lastActionRow = centerRow;
         this.lastActionCol = centerCol;
         
+        // Mark game as in progress
+        this.gameInProgress = true;
+        
         // Clear menu stack for game
         this.menuStack = [];
         
@@ -697,10 +823,10 @@ class MenuApp {
         this.renderMinesweeperGame();
     }
     
-    // Calculate 5x5 play area centered on a square, keeping within board bounds
+    // Calculate play area (focus area size) centered on a square, keeping within board bounds
     calculatePlayArea(centerRow, centerCol, boardRows, boardCols) {
-        const size = 5;
-        const halfSize = Math.floor(size / 2); // 2
+        const size = this.focusAreaSize;
+        const halfSize = Math.floor(size / 2);
         
         let startRow = centerRow - halfSize;
         let endRow = centerRow + halfSize;
