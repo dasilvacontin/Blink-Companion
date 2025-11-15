@@ -56,11 +56,11 @@ function createSampleBoard(rows, cols, mineCount) {
 
 export const SmallBoard = {
   args: {
-    rows: 10,
-    cols: 10,
+    rows: 7,
+    cols: 7,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(10, 10, 15);
+    const { board, revealed, flagged } = createSampleBoard(7, 7, 8);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -76,11 +76,11 @@ export const SmallBoard = {
 
 export const MediumBoard = {
   args: {
-    rows: 20,
-    cols: 20,
+    rows: 9,
+    cols: 9,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(20, 20, 60);
+    const { board, revealed, flagged } = createSampleBoard(9, 9, 12);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -96,11 +96,11 @@ export const MediumBoard = {
 
 export const LargeBoard = {
   args: {
-    rows: 30,
-    cols: 30,
+    rows: 9,
+    cols: 16,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(30, 30, 135);
+    const { board, revealed, flagged } = createSampleBoard(9, 16, 65);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -116,15 +116,15 @@ export const LargeBoard = {
 
 export const WithSelectedArea = {
   args: {
-    rows: 10,
-    cols: 10,
+    rows: 7,
+    cols: 7,
     selectedStartRow: 1,
     selectedEndRow: 5,
     selectedStartCol: 2,
-    selectedEndCol: 7,
+    selectedEndCol: 6,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(10, 10, 15);
+    const { board, revealed, flagged } = createSampleBoard(7, 7, 8);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -140,19 +140,19 @@ export const WithSelectedArea = {
 
 export const WithSelectedAndHighlighted = {
   args: {
-    rows: 10,
-    cols: 10,
+    rows: 7,
+    cols: 7,
     selectedStartRow: 1,
     selectedEndRow: 5,
     selectedStartCol: 2,
-    selectedEndCol: 7,
+    selectedEndCol: 6,
     highlightedStartRow: 3,
     highlightedEndRow: 3,
     highlightedStartCol: 2,
-    highlightedEndCol: 7,
+    highlightedEndCol: 6,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(10, 10, 15);
+    const { board, revealed, flagged } = createSampleBoard(7, 7, 8);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -168,19 +168,19 @@ export const WithSelectedAndHighlighted = {
 
 export const WithHighlightedRow = {
   args: {
-    rows: 10,
-    cols: 10,
+    rows: 7,
+    cols: 7,
     selectedStartRow: 1,
     selectedEndRow: 5,
     selectedStartCol: 0,
-    selectedEndCol: 9,
+    selectedEndCol: 6,
     highlightedStartRow: 3,
     highlightedEndRow: 3,
     highlightedStartCol: 0,
-    highlightedEndCol: 9,
+    highlightedEndCol: 6,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(10, 10, 15);
+    const { board, revealed, flagged } = createSampleBoard(7, 7, 8);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -196,19 +196,19 @@ export const WithHighlightedRow = {
 
 export const WithHighlightedSquare = {
   args: {
-    rows: 10,
-    cols: 10,
+    rows: 7,
+    cols: 7,
     selectedStartRow: 3,
     selectedEndRow: 3,
     selectedStartCol: 2,
-    selectedEndCol: 6,
+    selectedEndCol: 5,
     highlightedStartRow: 3,
     highlightedEndRow: 3,
     highlightedStartCol: 4,
     highlightedEndCol: 4,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(10, 10, 15);
+    const { board, revealed, flagged } = createSampleBoard(7, 7, 8);
     const container = createMinesweeperBoard({
       ...args,
       board,
@@ -224,15 +224,15 @@ export const WithHighlightedSquare = {
 
 export const WithSelectedSquareOnly = {
   args: {
-    rows: 10,
-    cols: 10,
+    rows: 7,
+    cols: 7,
     selectedStartRow: 3,
     selectedEndRow: 3,
     selectedStartCol: 4,
     selectedEndCol: 4,
   },
   render: (args) => {
-    const { board, revealed, flagged } = createSampleBoard(10, 10, 15);
+    const { board, revealed, flagged } = createSampleBoard(7, 7, 8);
     const container = createMinesweeperBoard({
       ...args,
       board,

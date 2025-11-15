@@ -38,9 +38,10 @@ class MenuApp {
         this.selectedBoardSize = null;
         this.minesweeperGame = null;
         this.minesweeperMode = false; // Whether we're in game mode
-        this.gameMode = 'row-selection'; // 'row-selection', 'column-selection', 'action-menu', 'game-over'
+        this.gameMode = 'row-selection'; // 'row-selection', 'column-selection', 'game-over'
         this.selectedRow = null;
         this.selectedCol = null;
+        this.actionColumn = null; // Column being acted on during column selection
         this.rowSelectionTimeout = null;
         this.actionMenuHoldTime = 0.5; // 0.5 seconds for action menu
         this.exitGameHoldTime = 2.0; // 2 seconds for exit game
@@ -144,9 +145,9 @@ class MenuApp {
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
             ],
             'minesweeper-board-size': [
-                { id: 'small', title: 'Small', subtitle: '10x10 board' },
-                { id: 'medium', title: 'Medium', subtitle: '20x20 board' },
-                { id: 'large', title: 'Large', subtitle: '30x30 board' },
+                { id: 'small', title: 'Small', subtitle: '7x7 board' },
+                { id: 'medium', title: 'Medium', subtitle: '9x9 board' },
+                { id: 'large', title: 'Large', subtitle: '9x16 board' },
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
             ],
             settings: [
@@ -453,29 +454,8 @@ class MenuApp {
                 }
             }
         } else if (this.gameMode === 'column-selection') {
-            // Select the currently highlighted column
-            const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
-            if (this.currentIndex < availableCols.length) {
-                this.selectedCol = availableCols[this.currentIndex];
-                this.gameMode = 'action-menu';
-                this.currentIndex = 0;
-                if (this.rowSelectionTimeout) {
-                    clearTimeout(this.rowSelectionTimeout);
-                    this.rowSelectionTimeout = null;
-                }
-                this.renderMinesweeperGame();
-            }
-        } else if (this.gameMode === 'action-menu') {
-            // Handle action menu selection
-            if (this.options.length === 0) return;
-            const option = this.options[this.currentIndex];
-            if (option.id === 'mine') {
-                this.handleMineAction();
-            } else if (option.id === 'flag') {
-                this.handleFlagAction();
-            } else if (option.id === 'exit') {
-                this.resetRowSelection();
-            }
+            // Column selection is now handled directly by blinking on highlighted columns
+            // No need to "select" a column first - actions happen on highlighted columns
         } else if (this.gameMode === 'game-over') {
             // Handle game over menu selection
             if (this.options.length === 0) return;
@@ -490,6 +470,13 @@ class MenuApp {
     }
     
     handleMineAction() {
+        // Check if square is flagged - if so, unflag it first (since we toggled flag on blink start)
+        const squareState = this.minesweeperGame.getSquareState(this.selectedRow, this.selectedCol);
+        if (squareState.flagged) {
+            // Unflag it first so we can mine it
+            this.minesweeperGame.toggleFlag(this.selectedRow, this.selectedCol);
+        }
+        
         const result = this.minesweeperGame.mineSquare(this.selectedRow, this.selectedCol);
         
         if (result.gameOver) {
@@ -789,6 +776,9 @@ class MenuApp {
         } else if (this.gameMode === 'column-selection') {
             // Selected area: the part of selected row within the play area
             if (this.selectedRow !== null) {
+                const selectionAreaStartCol = this.playAreaStartCol !== null ? this.playAreaStartCol : 0;
+                const selectionAreaEndCol = this.playAreaEndCol !== null ? this.playAreaEndCol : boardState.cols - 1;
+                
                 selectedStartRow = this.selectedRow;
                 selectedEndRow = this.selectedRow;
                 selectedStartCol = selectionAreaStartCol;
@@ -803,15 +793,6 @@ class MenuApp {
                     highlightedStartCol = highlightedColIndex;
                     highlightedEndCol = highlightedColIndex;
                 }
-            }
-        } else if (this.gameMode === 'action-menu') {
-            // Selected area: the selected square
-            if (this.selectedRow !== null && this.selectedCol !== null) {
-                selectedStartRow = this.selectedRow;
-                selectedEndRow = this.selectedRow;
-                selectedStartCol = this.selectedCol;
-                selectedEndCol = this.selectedCol;
-                // No highlighted area in action-menu mode
             }
         } else if (this.gameMode === 'game-over') {
             // No selected or highlighted areas in game-over mode
@@ -836,11 +817,6 @@ class MenuApp {
         });
         container.appendChild(board);
         
-        // Create floating action menu below selected square (row/column selection happens on board)
-        if (this.gameMode === 'action-menu' && this.selectedRow !== null && this.selectedCol !== null) {
-            this.renderFloatingActionMenu(container, boardState);
-        }
-        
         // Add game over menu or board actions below the board
         if (this.gameMode === 'game-over') {
             this.renderGameOverMenu(container, boardState);
@@ -863,92 +839,6 @@ class MenuApp {
         this.startGameAutoScroll();
     }
     
-    
-    renderFloatingActionMenu(container, boardState) {
-        const squareState = this.minesweeperGame.getSquareState(this.selectedRow, this.selectedCol);
-        
-        // Determine which actions are available
-        const canMine = !squareState.revealed && !squareState.flagged;
-        const canFlag = !squareState.revealed;
-        
-        // Create action menu options - Cancel is first
-        const actionOptions = [];
-        actionOptions.push({
-            id: 'exit',
-            title: 'Cancel',
-            isAction: true
-        });
-        if (canMine) {
-            actionOptions.push({
-                id: 'mine',
-                title: 'Mine',
-                isAction: true
-            });
-        }
-        if (canFlag) {
-            actionOptions.push({
-                id: 'flag',
-                title: 'Flag',
-                isAction: true
-            });
-        }
-        
-        // Store options for selection logic
-        this.options = actionOptions;
-        
-        // Calculate position of selected square
-        // Get the board element to find its position
-        const board = container.querySelector('.minesweeper-board');
-        if (!board) return;
-        
-        const squareSize = 40; // Each square is 40px
-        const gridBorder = 2; // Grid has 2px border
-        const menuOffset = 10; // Space between square and menu
-        
-        // Create floating menu container
-        const floatingMenu = document.createElement('div');
-        floatingMenu.className = 'minesweeper-floating-menu';
-        floatingMenu.id = 'menu-options';
-        floatingMenu.style.position = 'absolute';
-        floatingMenu.style.zIndex = '10';
-        
-        // Calculate position after board is rendered
-        // Use requestAnimationFrame to ensure board is laid out
-        requestAnimationFrame(() => {
-            const boardRect = board.getBoundingClientRect();
-            const containerRect = container.getBoundingClientRect();
-            const boardOffsetLeft = boardRect.left - containerRect.left;
-            const boardOffsetTop = boardRect.top - containerRect.top;
-            
-            // Position relative to container (board offset + grid position)
-            const menuLeft = boardOffsetLeft + gridBorder + this.selectedCol * squareSize;
-            const menuTop = boardOffsetTop + gridBorder + (this.selectedRow + 1) * squareSize + menuOffset;
-            
-            floatingMenu.style.left = `${menuLeft}px`;
-            floatingMenu.style.top = `${menuTop}px`;
-        });
-        
-        // Create menu options
-        const optionsContainer = document.createElement('div');
-        optionsContainer.className = 'menu-options';
-        optionsContainer.style.display = 'flex';
-        optionsContainer.style.flexDirection = 'column';
-        optionsContainer.style.gap = '8px';
-        
-        actionOptions.forEach((option, index) => {
-            const optionEl = createMenuOption({
-                title: option.title,
-                subtitle: '', // No subtitle
-                highlighted: index === this.currentIndex,
-                progress: 0
-            });
-            optionEl.dataset.index = index;
-            optionsContainer.appendChild(optionEl);
-        });
-        
-        floatingMenu.appendChild(optionsContainer);
-        container.appendChild(floatingMenu);
-    }
     
     renderBoardActions(container, boardState) {
         // Create actions container below board
@@ -1071,9 +961,11 @@ class MenuApp {
     getAvailableColumns(boardState, row) {
         if (row === null) return [];
         const availableCols = [];
+        // If play area is null, use full board; otherwise use play area bounds
         const startCol = this.playAreaStartCol !== null ? this.playAreaStartCol : 0;
         const endCol = this.playAreaEndCol !== null ? this.playAreaEndCol : boardState.cols - 1;
         
+        // Make sure we're iterating through all columns in the range
         for (let col = startCol; col <= endCol; col++) {
             if (!boardState.revealed[row][col]) {
                 availableCols.push(col);
@@ -1106,6 +998,10 @@ class MenuApp {
                         this.renderMinesweeperGame();
                     }
                 } else if (this.gameMode === 'column-selection') {
+                    // If we're currently acting on a column (blinking), don't auto-scroll
+                    if (this.isSelecting && this.actionColumn !== null) {
+                        return; // Don't auto-scroll when acting on a column
+                    }
                     const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
                     if (availableCols.length > 0) {
                         // Move to next column, but don't loop - after last column, it will timeout
@@ -1117,7 +1013,7 @@ class MenuApp {
                         this.renderMinesweeperGame();
                     }
                 }
-                } else if (this.gameMode === 'action-menu' || this.gameMode === 'game-over') {
+                } else if (this.gameMode === 'game-over') {
                     // For action menu and game over menu, use regular menu highlighting
                     const optionEls = document.querySelectorAll('#menu-options .menu-option');
                     if (optionEls.length > 0) {
@@ -1155,6 +1051,7 @@ class MenuApp {
     resetRowSelection() {
         this.selectedRow = null;
         this.selectedCol = null;
+        this.actionColumn = null;
         this.gameMode = 'row-selection';
         this.currentIndex = 0;
         if (this.rowSelectionTimeout) {
@@ -1178,9 +1075,66 @@ class MenuApp {
         if (this.isSelecting) return;
         if (!this.eyesWereOpen) return; // Don't start if eyes weren't open first
         
-        // For board-based selection (row/column), we don't need progress indicators
+        // For board-based selection (row/column/square), we don't need progress indicators
         // The selection happens directly on the board
         if (this.minesweeperMode && (this.gameMode === 'row-selection' || this.gameMode === 'column-selection')) {
+            // Check if we're in column-selection mode and have a highlighted column
+            if (this.gameMode === 'column-selection' && this.selectedRow !== null) {
+                const boardState = this.minesweeperGame.getBoardState();
+                const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
+                
+                // Check if we're blinking on a highlighted column (not a selected column)
+                if (this.currentIndex < availableCols.length) {
+                    const highlightedCol = availableCols[this.currentIndex];
+                    const squareState = this.minesweeperGame.getSquareState(this.selectedRow, highlightedCol);
+                    
+                    // Only toggle flag if square is not already revealed
+                    if (!squareState.revealed) {
+                        // Toggle flag immediately when blink starts on highlighted column
+                        this.minesweeperGame.toggleFlag(this.selectedRow, highlightedCol);
+                        // Re-render immediately to show the flag change
+                        this.renderMinesweeperGame();
+                    }
+                    
+                    // Use blink threshold for hold time to mine
+                    const holdTime = this.blinkThreshold;
+                    
+                    // Store the column we're acting on
+                    this.actionColumn = highlightedCol;
+                    
+                    this.isSelecting = true;
+                    this.selectionProgress = 0;
+                    this.selectionStartTime = Date.now();
+                    
+                    const animate = () => {
+                        if (!this.isSelecting) {
+                            this.cancelSelection();
+                            return;
+                        }
+                        
+                        const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                        this.selectionProgress = Math.min(elapsed / holdTime, 1);
+                        
+                        // Update progress fill on highlighted area
+                        this.updateHighlightedAreaProgress(this.selectionProgress);
+                        
+                        if (this.selectionProgress >= 1) {
+                            // Complete blink on highlighted column - perform mine action
+                            this.cancelSelection();
+                            this.handleMineActionOnColumn(this.selectedRow, this.actionColumn);
+                            this.actionColumn = null;
+                            this.resetBlinkState();
+                        } else {
+                            this.selectionAnimationFrame = requestAnimationFrame(animate);
+                        }
+                    };
+                    
+                    this.selectionAnimationFrame = requestAnimationFrame(animate);
+                    return;
+                }
+            }
+            
+            // Regular row/column/board action selection
             // Check if we're selecting a board action that needs special hold time
             let holdTime = this.blinkThreshold;
             if (this.gameMode === 'row-selection') {
@@ -1217,9 +1171,18 @@ class MenuApp {
                 
                 if (this.selectionProgress >= 1) {
                     // Selection complete
-                    this.cancelSelection();
-                    this.handleGameSelection();
-                    this.resetBlinkState();
+                    // Check if we're selecting a square (both row and col are selected)
+                    if (this.selectedRow !== null && this.selectedCol !== null) {
+                        // Complete blink on a square - perform mine action
+                        this.cancelSelection();
+                        this.handleMineAction();
+                        this.resetBlinkState();
+                    } else {
+                        // Regular selection (row or board action)
+                        this.cancelSelection();
+                        this.handleGameSelection();
+                        this.resetBlinkState();
+                    }
                 } else {
                     this.selectionAnimationFrame = requestAnimationFrame(animate);
                 }
@@ -1248,7 +1211,7 @@ class MenuApp {
         // Determine hold time based on context
         let holdTime = this.blinkThreshold;
         if (this.minesweeperMode) {
-            if ((this.gameMode === 'action-menu' || this.gameMode === 'game-over') && this.options[this.currentIndex]) {
+            if (this.gameMode === 'game-over' && this.options[this.currentIndex]) {
                 const option = this.options[this.currentIndex];
                 if (option.isAction) {
                     holdTime = this.actionMenuHoldTime;
@@ -1294,8 +1257,18 @@ class MenuApp {
     }
     
     cancelSelection() {
+        // Check if we were acting on a highlighted column during column selection
+        const wasActingOnColumn = this.minesweeperMode && 
+            this.gameMode === 'column-selection' && 
+            this.selectedRow !== null && 
+            this.actionColumn !== null &&
+            this.isSelecting;
+        
+        const actionCol = this.actionColumn; // Store before resetting
+        
         this.isSelecting = false;
         this.selectionProgress = 0;
+        this.actionColumn = null;
         
         if (this.selectionAnimationFrame) {
             cancelAnimationFrame(this.selectionAnimationFrame);
@@ -1312,6 +1285,47 @@ class MenuApp {
         
         // Clear highlighted area progress
         this.updateHighlightedAreaProgress(0);
+        
+        // If we were acting on a highlighted column and released early (didn't complete mine action),
+        // we already toggled the flag, so just update play area and continue column selection
+        if (wasActingOnColumn && actionCol !== null) {
+            // Update play area after flag toggle
+            this.updatePlayAreaAfterAction(this.selectedRow, actionCol);
+            // Re-render to show the flag change
+            this.renderMinesweeperGame();
+        }
+    }
+    
+    handleMineActionOnColumn(row, col) {
+        // Check if square is flagged - if so, unflag it first (since we toggled flag on blink start)
+        const squareState = this.minesweeperGame.getSquareState(row, col);
+        if (squareState.flagged) {
+            // Unflag it first so we can mine it
+            this.minesweeperGame.toggleFlag(row, col);
+        }
+        
+        const result = this.minesweeperGame.mineSquare(row, col);
+        
+        if (result.gameOver) {
+            if (result.won) {
+                // Handle win - show win menu
+                this.gameMode = 'game-over';
+                this.currentIndex = 0;
+                this.renderMinesweeperGame();
+            } else {
+                // Handle loss - reveal the mine and show game over menu
+                // The mine should already be revealed by the engine
+                this.gameMode = 'game-over';
+                this.currentIndex = 0;
+                this.renderMinesweeperGame();
+            }
+        } else {
+            // Update play area to 5x5 centered on this square
+            this.updatePlayAreaAfterAction(row, col);
+            
+            // Re-render board and return to row selection
+            this.resetRowSelection();
+        }
     }
     
     updateHighlightedAreaProgress(progress) {

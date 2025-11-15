@@ -6,9 +6,9 @@ import { createMenuContainer } from './MenuContainer.js';
 
 export function createBoardSizeSelector({ highlightedIndex = 0 } = {}) {
   const boardSizeOptions = [
-    { title: 'Small', subtitle: '10x10 board' },
-    { title: 'Medium', subtitle: '20x20 board' },
-    { title: 'Large', subtitle: '30x30 board' },
+    { title: 'Small', subtitle: '7x7 board' },
+    { title: 'Medium', subtitle: '9x9 board' },
+    { title: 'Large', subtitle: '9x16 board' },
   ];
 
   return createMenuContainer({

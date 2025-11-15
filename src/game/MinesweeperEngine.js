@@ -9,13 +9,14 @@ export class MinesweeperEngine {
         
         // Map board size names to dimensions
         const sizeMap = {
-            'small': 10,
-            'medium': 20,
-            'large': 30
+            'small': { rows: 7, cols: 7 },
+            'medium': { rows: 9, cols: 9 },
+            'large': { rows: 9, cols: 16 }
         };
         
-        this.rows = sizeMap[boardSize] || 10;
-        this.cols = sizeMap[boardSize] || 10;
+        const dimensions = sizeMap[boardSize] || { rows: 7, cols: 7 };
+        this.rows = dimensions.rows;
+        this.cols = dimensions.cols;
         
         // Map difficulty to mine density
         const densityMap = {
