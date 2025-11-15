@@ -629,13 +629,17 @@ class MenuApp {
         this.currentMenu = 'minesweeper-game';
         this.currentIndex = 0;
         
-        // Initialize play area to full board (no 5x5 constraint yet)
-        this.playAreaStartRow = null;
-        this.playAreaEndRow = null;
-        this.playAreaStartCol = null;
-        this.playAreaEndCol = null;
-        this.lastActionRow = null;
-        this.lastActionCol = null;
+        // Initialize play area to 5x5 centered on the board
+        const boardState = this.minesweeperGame.getBoardState();
+        const centerRow = Math.floor(boardState.rows / 2);
+        const centerCol = Math.floor(boardState.cols / 2);
+        const playArea = this.calculatePlayArea(centerRow, centerCol, boardState.rows, boardState.cols);
+        this.playAreaStartRow = playArea.startRow;
+        this.playAreaEndRow = playArea.endRow;
+        this.playAreaStartCol = playArea.startCol;
+        this.playAreaEndCol = playArea.endCol;
+        this.lastActionRow = centerRow;
+        this.lastActionCol = centerCol;
         
         // Clear menu stack for game
         this.menuStack = [];
