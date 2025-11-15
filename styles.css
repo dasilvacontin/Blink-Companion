@@ -11,8 +11,22 @@
     --border-fill: #E2DEFF;
 }
 
+.comic-relief-regular {
+    font-family: "Comic Relief", system-ui;
+    font-weight: 400;
+    font-style: normal;
+}
+
+.comic-relief-bold {
+    font-family: "Comic Relief", system-ui;
+    font-weight: 700;
+    font-style: normal;
+}
+
 body {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-family: "Comic Relief", system-ui;
+    font-weight: 400;
+    font-style: normal;
     background: var(--bg-white);
     color: var(--text-primary);
     min-height: 100vh;
@@ -163,7 +177,9 @@ body {
     border: 2px solid var(--border-fill);
     border-radius: 4px;
     padding: 8px 16px;
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-family: "Comic Relief", system-ui;
+    font-weight: 400;
+    font-style: normal;
     font-size: 1rem;
     color: var(--text-primary);
     cursor: pointer;
@@ -295,7 +311,9 @@ body {
     height: 40px;
     min-width: 40px;
     min-height: 40px;
-    font-family: 'Comic Sans MS', cursive, sans-serif;
+    font-family: "Comic Relief", system-ui;
+    font-weight: 400;
+    font-style: normal;
     font-size: 1rem;
     color: var(--text-primary);
     position: relative;

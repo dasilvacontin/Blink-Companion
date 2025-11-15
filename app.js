@@ -131,7 +131,7 @@ class MenuApp {
                 { id: 'lock', title: 'Rest', subtitle: 'Lock the app to rest' },
                 { id: 'write', title: 'Write', subtitle: 'with predictive assistance' },
                 { id: 'saved-text', title: 'Saved text', subtitle: 'View and manage saved text' },
-                { id: 'games', title: 'Games', subtitle: 'Have fun!' },
+                { id: 'minesweeper', title: 'Minesweeper', subtitle: 'Classic minesweeper game' },
                 { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' }
             ],
             write: [
@@ -983,7 +983,7 @@ class MenuApp {
             this.minesweeperGame = null;
             this.selectedDifficulty = null;
             this.selectedBoardSize = null;
-            this.navigateTo('games');
+            this.navigateTo('main');
             return;
         }
         
