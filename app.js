@@ -44,6 +44,8 @@ class MenuApp {
         this.leftEyeClosed = false;
         this.rightEyeClosed = false;
         this.eyesWereOpen = true; // Track if eyes were open before starting selection
+        this.eyeClosedStartTime = null; // When eyes first detected as closed (for debounce)
+        this.BLINK_DEBOUNCE_TIME = 100; // Milliseconds eyes must be closed before registering as blink start
         
         // SOS Pattern state (for lock screen)
         this.sosPattern = [0.2, 0.2, 0.2, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2]; // short, short, short, long, long, long, short, short, short
@@ -53,6 +55,7 @@ class MenuApp {
         this.isLocked = false; // Whether app is locked
         this.lockScreenAnimationFrame = null; // Animation frame for lock screen progress
         this.sosFullFillTime = null; // When the square reached 100% fill
+        this.sosInactivityTimeout = null; // Timeout for resetting pattern after 5 seconds without success
         
         // MediaPipe
         this.faceMesh = null;
@@ -170,8 +173,6 @@ class MenuApp {
             // Reset SOS pattern state if just entering lock screen
             if (this.sosStep === 0 && this.sosBlinkStartTime === null && this.sosFullFillTime === null) {
                 this.resetSOSPattern();
-                // Highlight the first square
-                this.updateLockScreenProgress(0, 0);
             }
             
             // Stop auto-scroll when on lock screen
@@ -425,6 +426,7 @@ class MenuApp {
         this.leftEyeClosed = false;
         this.rightEyeClosed = false;
         this.eyesWereOpen = false; // Require eyes to be open before next selection can start
+        this.eyeClosedStartTime = null; // Reset debounce timer
     }
     
     startSelection() {
@@ -571,6 +573,7 @@ class MenuApp {
     }
     
     detectSingleEyeBlink() {
+        const now = Date.now();
         const leftClosed = this.earLeft < EAR_THRESHOLD;
         const rightClosed = this.earRight < EAR_THRESHOLD;
         const leftOpen = this.earLeft >= EAR_THRESHOLD;
@@ -578,6 +581,32 @@ class MenuApp {
         const bothOpen = leftOpen && rightOpen;
         const anyEyeClosed = leftClosed || rightClosed;
         
+        // Debounce: require eyes to be closed for a minimum duration before registering as blink
+        if (anyEyeClosed) {
+            if (this.eyeClosedStartTime === null) {
+                // Just detected eyes closed - start timer
+                this.eyeClosedStartTime = now;
+            } else {
+                // Eyes still closed - check if debounce time has passed
+                const closedDuration = now - this.eyeClosedStartTime;
+                if (closedDuration >= this.BLINK_DEBOUNCE_TIME) {
+                    // Debounce time passed - eyes are confirmed closed
+                    const confirmedClosed = true;
+                    this.handleBlinkState(confirmedClosed, bothOpen, leftClosed, rightClosed, leftOpen, rightOpen);
+                }
+                // If debounce time hasn't passed, don't register as closed yet
+            }
+        } else {
+            // Eyes are open - reset debounce timer
+            if (this.eyeClosedStartTime !== null) {
+                this.eyeClosedStartTime = null;
+            }
+            // Handle open state
+            this.handleBlinkState(false, bothOpen, leftClosed, rightClosed, leftOpen, rightOpen);
+        }
+    }
+    
+    handleBlinkState(anyEyeClosed, bothOpen, leftClosed, rightClosed, leftOpen, rightOpen) {
         // Handle SOS pattern detection for lock screen
         if (this.currentMenu === 'lock' || this.isLocked) {
             this.handleSOSPattern(anyEyeClosed, bothOpen);
@@ -632,7 +661,6 @@ class MenuApp {
         const OVERFILL_THRESHOLD = 0.5; // 0.5 seconds after full fill is a mistake
         
         if (anyEyeClosed) {
-            // Blink started or continuing
             if (this.sosBlinkStartTime === null) {
                 // Just started blinking
                 this.sosBlinkStartTime = now;
@@ -643,7 +671,7 @@ class MenuApp {
                 if (this.sosFullFillTime !== null) {
                     const overfillDuration = (now - this.sosFullFillTime) / 1000;
                     if (overfillDuration > OVERFILL_THRESHOLD) {
-                        // Held too long after full fill - reset pattern
+                        // Held too long after full fill - reset the whole lock screen
                         this.resetSOSPattern();
                         return;
                     }
@@ -653,27 +681,45 @@ class MenuApp {
         } else if (bothOpen && this.sosBlinkStartTime !== null) {
             // Blink ended
             const blinkDuration = (now - this.sosBlinkStartTime) / 1000;
+            this.sosBlinkStartTime = null;
             
             // Check if square was fully filled (reached expected duration)
             if (blinkDuration >= expectedDuration) {
-                // Square was fully filled - accept the blink
+                // Square was fully filled - success! Clear failure timeout
+                this.clearFailureTimeout();
                 this.updateLockScreenProgress(this.sosStep, 1);
                 this.sosStep++;
-                this.sosBlinkStartTime = null;
                 this.sosFullFillTime = null;
                 
                 // Check if pattern is complete
                 if (this.sosStep >= this.sosPattern.length) {
                     // Pattern complete - unlock
+                    this.clearFailureTimeout();
                     this.unlock();
                 } else {
                     // Reset progress for next step and highlight it
                     this.updateLockScreenProgress(this.sosStep, 0);
                 }
             } else {
-                // Released before square was fully filled - reset pattern
+                // Released before square was fully filled - reset the whole lock screen
                 this.resetSOSPattern();
             }
+        }
+    }
+    
+    startFailureTimeout() {
+        // Start or restart the timeout for 5 seconds without successfully completing a square
+        this.clearFailureTimeout();
+        this.sosInactivityTimeout = setTimeout(() => {
+            this.resetSOSPattern();
+        }, 5000); // 5 seconds without success
+    }
+    
+    clearFailureTimeout() {
+        // Clear the timeout when a square is successfully completed
+        if (this.sosInactivityTimeout) {
+            clearTimeout(this.sosInactivityTimeout);
+            this.sosInactivityTimeout = null;
         }
     }
     
@@ -735,6 +781,7 @@ class MenuApp {
     }
     
     resetSOSPattern() {
+        this.clearFailureTimeout();
         this.sosStep = 0;
         this.sosBlinkStartTime = null;
         this.sosBlinkDuration = 0;
@@ -752,6 +799,9 @@ class MenuApp {
                 sq.classList.remove('highlighted');
             });
         }
+        
+        // Highlight first square
+        this.updateLockScreenProgress(0, 0);
     }
     
     unlock() {
@@ -760,6 +810,7 @@ class MenuApp {
         this.sosBlinkStartTime = null;
         this.sosBlinkDuration = 0;
         this.sosFullFillTime = null;
+        this.clearFailureTimeout();
         
         // Stop lock screen animation
         if (this.lockScreenAnimationFrame) {
