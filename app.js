@@ -17,8 +17,8 @@ const RIGHT_EYE_POINTS = {
 
 // Configuration
 const EAR_THRESHOLD = 0.25;
-const DEFAULT_SCROLL_SPEED = 0.5; // seconds
-const DEFAULT_BLINK_THRESHOLD = 0.3; // seconds
+const DEFAULT_SCROLL_SPEED = 0.6; // seconds
+const DEFAULT_BLINK_THRESHOLD = 0.7; // seconds
 
 class MenuApp {
     constructor() {
