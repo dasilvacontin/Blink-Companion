@@ -1,8 +1,8 @@
 /**
  * LockScreen Component
- * A 3x3 grid for SOS pattern entry with debug information
+ * A 3x3 grid for SOS pattern entry with optional debug information
  */
-export function createLockScreen({ patternProgress = [] }) {
+export function createLockScreen({ patternProgress = [], showDebug = false }) {
   const container = document.createElement('div');
   container.className = 'lock-screen';
   
@@ -41,22 +41,24 @@ export function createLockScreen({ patternProgress = [] }) {
   
   container.appendChild(grid);
   
-  // Debug panel
-  const debugPanel = document.createElement('div');
-  debugPanel.className = 'debug-panel';
-  debugPanel.id = 'debug-panel';
-  
-  const debugTitle = document.createElement('h2');
-  debugTitle.className = 'debug-title';
-  debugTitle.textContent = 'Debug Info';
-  debugPanel.appendChild(debugTitle);
-  
-  const debugContent = document.createElement('div');
-  debugContent.className = 'debug-content';
-  debugContent.id = 'debug-content';
-  debugPanel.appendChild(debugContent);
-  
-  container.appendChild(debugPanel);
+  // Debug panel - only show if showDebug is true
+  if (showDebug) {
+    const debugPanel = document.createElement('div');
+    debugPanel.className = 'debug-panel';
+    debugPanel.id = 'debug-panel';
+    
+    const debugTitle = document.createElement('h2');
+    debugTitle.className = 'debug-title';
+    debugTitle.textContent = 'Debug Info';
+    debugPanel.appendChild(debugTitle);
+    
+    const debugContent = document.createElement('div');
+    debugContent.className = 'debug-content';
+    debugContent.id = 'debug-content';
+    debugPanel.appendChild(debugContent);
+    
+    container.appendChild(debugPanel);
+  }
   
   return container;
 }

@@ -20,7 +20,7 @@ const RIGHT_EYE_POINTS = {
 };
 
 // Configuration
-const EAR_THRESHOLD = 0.25;
+const DEFAULT_EAR_THRESHOLD = 0.15; // Lower default for better mobile detection
 const DEFAULT_SCROLL_SPEED = 0.6; // seconds
 const DEFAULT_BLINK_THRESHOLD = 0.7; // seconds
 
@@ -32,6 +32,7 @@ class MenuApp {
         this.currentIndex = 0;
         this.scrollSpeed = DEFAULT_SCROLL_SPEED;
         this.blinkThreshold = DEFAULT_BLINK_THRESHOLD;
+        this.earThreshold = DEFAULT_EAR_THRESHOLD; // Configurable EAR threshold
         
         // Minesweeper setup state
         this.selectedDifficulty = null;
@@ -93,6 +94,9 @@ class MenuApp {
         this.canvas = null;
         this.ctx = null;
         
+        // Debug mode - check URL for ?debug parameter
+        this.debugMode = this.isDebugMode();
+        
         // Load settings
         this.loadSettings();
         
@@ -103,10 +107,16 @@ class MenuApp {
         this.waitForMediaPipe();
     }
     
+    isDebugMode() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.has('debug');
+    }
+    
     loadSettings() {
         const savedScrollSpeed = localStorage.getItem('scrollSpeed');
         const savedBlinkThreshold = localStorage.getItem('blinkThreshold');
         const savedFocusAreaSize = localStorage.getItem('focusAreaSize');
+        const savedEarThreshold = localStorage.getItem('earThreshold');
         
         if (savedScrollSpeed) {
             this.scrollSpeed = parseFloat(savedScrollSpeed);
@@ -117,12 +127,16 @@ class MenuApp {
         if (savedFocusAreaSize) {
             this.focusAreaSize = parseInt(savedFocusAreaSize, 10);
         }
+        if (savedEarThreshold) {
+            this.earThreshold = parseFloat(savedEarThreshold);
+        }
     }
     
     saveSettings() {
         localStorage.setItem('scrollSpeed', this.scrollSpeed.toString());
         localStorage.setItem('blinkThreshold', this.blinkThreshold.toString());
         localStorage.setItem('focusAreaSize', this.focusAreaSize.toString());
+        localStorage.setItem('earThreshold', this.earThreshold.toString());
     }
     
     initializeMenus() {
@@ -238,10 +252,14 @@ class MenuApp {
         
         // Special handling for lock screen - use LockScreen component
         if (this.currentMenu === 'lock' || this.isLocked) {
-            // Show camera overlay when locked
+            // Show camera overlay only in debug mode
             const cameraOverlay = document.getElementById('camera-overlay');
             if (cameraOverlay) {
-                cameraOverlay.classList.remove('hidden');
+                if (this.debugMode) {
+                    cameraOverlay.classList.remove('hidden');
+                } else {
+                    cameraOverlay.classList.add('hidden');
+                }
             }
             
             // Check if lock screen already exists
@@ -252,7 +270,7 @@ class MenuApp {
                 const menuContainerEl = document.getElementById('menu-container');
                 if (menuContainerEl) {
                     menuContainerEl.innerHTML = '';
-                    const lockScreen = createLockScreen({ patternProgress: [] });
+                    const lockScreen = createLockScreen({ patternProgress: [], showDebug: this.debugMode });
                     lockScreen.id = 'menu-container';
                     menuContainerEl.replaceWith(lockScreen);
                 }
@@ -2277,10 +2295,10 @@ class MenuApp {
     
     detectSingleEyeBlink() {
         const now = Date.now();
-        const leftClosed = this.earLeft < EAR_THRESHOLD;
-        const rightClosed = this.earRight < EAR_THRESHOLD;
-        const leftOpen = this.earLeft >= EAR_THRESHOLD;
-        const rightOpen = this.earRight >= EAR_THRESHOLD;
+        const leftClosed = this.earLeft < this.earThreshold;
+        const rightClosed = this.earRight < this.earThreshold;
+        const leftOpen = this.earLeft >= this.earThreshold;
+        const rightOpen = this.earRight >= this.earThreshold;
         const bothOpen = leftOpen && rightOpen;
         const anyEyeClosed = leftClosed || rightClosed;
         
@@ -2530,9 +2548,9 @@ class MenuApp {
         this.sosRequireEyesOpen = false; // Reset the flag
         this.clearFailureTimeout();
         
-        // Hide camera overlay when unlocked
+        // Hide camera overlay when unlocked (unless in debug mode)
         const cameraOverlay = document.getElementById('camera-overlay');
-        if (cameraOverlay) {
+        if (cameraOverlay && !this.debugMode) {
             cameraOverlay.classList.add('hidden');
         }
         
@@ -2580,8 +2598,8 @@ class MenuApp {
             
             this.detectSingleEyeBlink();
             
-            // Update debug info if on lock screen
-            if (this.currentMenu === 'lock' || this.isLocked) {
+            // Update debug info if on lock screen and in debug mode
+            if ((this.currentMenu === 'lock' || this.isLocked) && this.debugMode) {
                 this.updateDebugInfo(true);
             }
         } else {
@@ -2591,7 +2609,7 @@ class MenuApp {
             this.eyesWereOpen = false; // Reset when face not detected
             
             // Update debug info - no face detected
-            if (this.currentMenu === 'lock' || this.isLocked) {
+            if ((this.currentMenu === 'lock' || this.isLocked) && this.debugMode) {
                 this.updateDebugInfo(false);
             }
         }
@@ -2601,10 +2619,10 @@ class MenuApp {
         const debugContent = document.getElementById('debug-content');
         if (!debugContent) return;
         
-        const leftClosed = this.earLeft < EAR_THRESHOLD;
-        const rightClosed = this.earRight < EAR_THRESHOLD;
-        const leftOpen = this.earLeft >= EAR_THRESHOLD;
-        const rightOpen = this.earRight >= EAR_THRESHOLD;
+        const leftClosed = this.earLeft < this.earThreshold;
+        const rightClosed = this.earRight < this.earThreshold;
+        const leftOpen = this.earLeft >= this.earThreshold;
+        const rightOpen = this.earRight >= this.earThreshold;
         const bothOpen = leftOpen && rightOpen;
         const anyEyeClosed = leftClosed || rightClosed;
         
@@ -2616,7 +2634,7 @@ class MenuApp {
             { label: 'Face Detected', value: faceDetected ? 'Yes' : 'No', status: faceDetected ? 'success' : 'error' },
             { label: 'Left EAR', value: faceDetected ? this.earLeft.toFixed(3) : 'N/A', status: leftClosed ? 'warning' : 'success' },
             { label: 'Right EAR', value: faceDetected ? this.earRight.toFixed(3) : 'N/A', status: rightClosed ? 'warning' : 'success' },
-            { label: 'EAR Threshold', value: EAR_THRESHOLD.toFixed(3), status: 'normal' },
+            { label: 'EAR Threshold', value: this.earThreshold.toFixed(3), status: 'normal' },
             { label: 'Left Eye', value: leftClosed ? 'CLOSED' : 'OPEN', status: leftClosed ? 'warning' : 'success' },
             { label: 'Right Eye', value: rightClosed ? 'CLOSED' : 'OPEN', status: rightClosed ? 'warning' : 'success' },
             { label: 'Both Eyes Open', value: bothOpen ? 'Yes' : 'No', status: bothOpen ? 'success' : 'warning' },
@@ -2646,10 +2664,23 @@ class MenuApp {
             debugItem.appendChild(value);
             debugContent.appendChild(debugItem);
         });
+        
+        // Add note about threshold adjustment
+        const noteItem = document.createElement('div');
+        noteItem.className = 'debug-item';
+        noteItem.style.gridColumn = '1 / -1';
+        noteItem.style.fontSize = '0.85rem';
+        noteItem.style.fontStyle = 'italic';
+        noteItem.style.color = 'var(--text-secondary)';
+        noteItem.textContent = `Tip: If eyes show as closed when open, lower EAR Threshold in browser console: app.earThreshold = 0.12; app.saveSettings(); (then refresh)`;
+        debugContent.appendChild(noteItem);
     }
 }
 
 // Initialize app when DOM is ready
+let app; // Make app globally accessible for debugging
 document.addEventListener('DOMContentLoaded', () => {
-    new MenuApp();
+    app = new MenuApp();
+    // Make app accessible globally for console debugging
+    window.app = app;
 });
