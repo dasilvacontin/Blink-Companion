@@ -119,56 +119,56 @@ class MenuApp {
     initializeMenus() {
         this.menus = {
             main: [
+                { id: 'lock', title: 'Rest', subtitle: 'Lock the app to rest' },
                 { id: 'write', title: 'Write', subtitle: 'with predictive assistance' },
                 { id: 'saved-text', title: 'Saved text', subtitle: 'View and manage saved text' },
                 { id: 'games', title: 'Games', subtitle: 'Have fun!' },
-                { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' },
-                { id: 'lock', title: 'Rest', subtitle: 'Lock the app to rest' }
+                { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' }
             ],
             write: [
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'back', title: 'Back', subtitle: '' }
             ],
             'saved-text': [
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'back', title: 'Back', subtitle: '' }
             ],
             'games': [
-                { id: 'minesweeper', title: 'Minesweeper', subtitle: 'Classic minesweeper game' },
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'back', title: 'Back', subtitle: '' },
+                { id: 'minesweeper', title: 'Minesweeper', subtitle: 'Classic minesweeper game' }
             ],
             'minesweeper': [
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'back', title: 'Back', subtitle: '' }
             ],
             'minesweeper-difficulty': [
+                { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'easy', title: 'Easy', subtitle: 'Fewer mines, larger safe areas' },
                 { id: 'medium', title: 'Medium', subtitle: 'Standard mine density' },
-                { id: 'hard', title: 'Hard', subtitle: 'More mines, tighter spacing' },
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'hard', title: 'Hard', subtitle: 'More mines, tighter spacing' }
             ],
             'minesweeper-board-size': [
+                { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'small', title: 'Small', subtitle: '7x7 board' },
                 { id: 'medium', title: 'Medium', subtitle: '9x9 board' },
-                { id: 'large', title: 'Large', subtitle: '9x16 board' },
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'large', title: 'Large', subtitle: '9x16 board' }
             ],
             settings: [
+                { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'scroll-speed', title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '' },
-                { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' },
-                { id: 'back', title: '<< Back <<', subtitle: 'Return to previous menu' }
+                { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' }
             ],
             'scroll-speed': [
+                { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'decrease', title: '- Decrease -', subtitle: '' },
                 { id: 'value', title: '', subtitle: '' }, // Will be populated dynamically
-                { id: 'increase', title: '+ Increase +', subtitle: '' },
-                { id: 'back', title: '<< Back <<', subtitle: 'Return to previous menu' }
+                { id: 'increase', title: '+ Increase +', subtitle: '' }
             ],
             'blink-threshold': [
+                { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'decrease', title: '- Decrease -', subtitle: '' },
                 { id: 'value', title: '', subtitle: '' }, // Will be populated dynamically
-                { id: 'increase', title: '+ Increase +', subtitle: '' },
-                { id: 'back', title: '<< Back <<', subtitle: 'Return to previous menu' }
+                { id: 'increase', title: '+ Increase +', subtitle: '' }
             ],
             lock: [
-                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+                { id: 'back', title: 'Back', subtitle: '' }
             ]
         };
     }
@@ -629,8 +629,15 @@ class MenuApp {
     
     updateSettingsMenu() {
         if (this.menus.settings) {
-            this.menus.settings[0].value = `${this.scrollSpeed.toFixed(1)}s`;
-            this.menus.settings[1].value = `${this.blinkThreshold.toFixed(1)}s`;
+            // Find options by ID instead of index (since Back is now first)
+            const scrollSpeedOption = this.menus.settings.find(opt => opt.id === 'scroll-speed');
+            const blinkThresholdOption = this.menus.settings.find(opt => opt.id === 'blink-threshold');
+            if (scrollSpeedOption) {
+                scrollSpeedOption.value = `${this.scrollSpeed.toFixed(1)}s`;
+            }
+            if (blinkThresholdOption) {
+                blinkThresholdOption.value = `${this.blinkThreshold.toFixed(1)}s`;
+            }
         }
     }
     
