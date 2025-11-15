@@ -32,7 +32,8 @@ class MenuApp {
         this.currentIndex = 0;
         this.scrollSpeed = DEFAULT_SCROLL_SPEED;
         this.blinkThreshold = DEFAULT_BLINK_THRESHOLD;
-        this.earThreshold = DEFAULT_EAR_THRESHOLD; // Configurable EAR threshold
+        this.earThresholdLeft = DEFAULT_EAR_THRESHOLD; // Configurable EAR threshold for left eye (user's left)
+        this.earThresholdRight = DEFAULT_EAR_THRESHOLD; // Configurable EAR threshold for right eye (user's right)
         
         // Minesweeper setup state
         this.selectedDifficulty = null;
@@ -97,6 +98,20 @@ class MenuApp {
         // Debug mode - check URL for ?debug parameter
         this.debugMode = this.isDebugMode();
         
+        // Calibration state
+        this.isCalibrating = false;
+        this.calibrationStep = 0;
+        this.calibrationData = {
+            bothEyesOpen: [],
+            leftEyeClosed: [],
+            leftEyeOpen: [],
+            rightEyeClosed: [],
+            rightEyeOpen: []
+        };
+        this.calibrationTimer = null;
+        this.calibrationStartTime = null;
+        this.calibrationStepDuration = 5000; // 5 seconds per step
+        
         // Load settings
         this.loadSettings();
         
@@ -116,7 +131,9 @@ class MenuApp {
         const savedScrollSpeed = localStorage.getItem('scrollSpeed');
         const savedBlinkThreshold = localStorage.getItem('blinkThreshold');
         const savedFocusAreaSize = localStorage.getItem('focusAreaSize');
-        const savedEarThreshold = localStorage.getItem('earThreshold');
+        const savedEarThresholdLeft = localStorage.getItem('earThresholdLeft');
+        const savedEarThresholdRight = localStorage.getItem('earThresholdRight');
+        const savedEarThreshold = localStorage.getItem('earThreshold'); // Legacy support
         
         if (savedScrollSpeed) {
             this.scrollSpeed = parseFloat(savedScrollSpeed);
@@ -127,8 +144,17 @@ class MenuApp {
         if (savedFocusAreaSize) {
             this.focusAreaSize = parseInt(savedFocusAreaSize, 10);
         }
-        if (savedEarThreshold) {
-            this.earThreshold = parseFloat(savedEarThreshold);
+        if (savedEarThresholdLeft) {
+            this.earThresholdLeft = parseFloat(savedEarThresholdLeft);
+        }
+        if (savedEarThresholdRight) {
+            this.earThresholdRight = parseFloat(savedEarThresholdRight);
+        }
+        // Legacy support: if old single threshold exists but not the new ones, use it for both
+        if (savedEarThreshold && !savedEarThresholdLeft && !savedEarThresholdRight) {
+            const legacyThreshold = parseFloat(savedEarThreshold);
+            this.earThresholdLeft = legacyThreshold;
+            this.earThresholdRight = legacyThreshold;
         }
     }
     
@@ -136,7 +162,8 @@ class MenuApp {
         localStorage.setItem('scrollSpeed', this.scrollSpeed.toString());
         localStorage.setItem('blinkThreshold', this.blinkThreshold.toString());
         localStorage.setItem('focusAreaSize', this.focusAreaSize.toString());
-        localStorage.setItem('earThreshold', this.earThreshold.toString());
+        localStorage.setItem('earThresholdLeft', this.earThresholdLeft.toString());
+        localStorage.setItem('earThresholdRight', this.earThresholdRight.toString());
     }
     
     initializeMenus() {
@@ -250,6 +277,17 @@ class MenuApp {
             titleText = titleMap[this.currentMenu] || 'Menu';
         }
         
+        // Special handling for calibration screen
+        if (this.isCalibrating) {
+            // Hide camera overlay during calibration (even in debug mode)
+            const cameraOverlay = document.getElementById('camera-overlay');
+            if (cameraOverlay) {
+                cameraOverlay.classList.add('hidden');
+            }
+            // Don't render normal menu when calibrating
+            return;
+        }
+        
         // Special handling for lock screen - use LockScreen component
         if (this.currentMenu === 'lock' || this.isLocked) {
             // Show camera overlay only in debug mode
@@ -289,6 +327,15 @@ class MenuApp {
             
             // Start animation loop for lock screen progress
             this.startLockScreenAnimation();
+            
+            // Add click handler for calibrate button
+            setTimeout(() => {
+                const calibrateButton = document.getElementById('calibrate-blink-button');
+                if (calibrateButton && !calibrateButton.hasAttribute('data-listener-added')) {
+                    calibrateButton.setAttribute('data-listener-added', 'true');
+                    calibrateButton.addEventListener('click', () => this.startCalibration());
+                }
+            }, 100);
             
             return;
         }
@@ -2295,10 +2342,13 @@ class MenuApp {
     
     detectSingleEyeBlink() {
         const now = Date.now();
-        const leftClosed = this.earLeft < this.earThreshold;
-        const rightClosed = this.earRight < this.earThreshold;
-        const leftOpen = this.earLeft >= this.earThreshold;
-        const rightOpen = this.earRight >= this.earThreshold;
+        // Note: MediaPipe's left/right is from camera perspective (mirrored)
+        // So we use right threshold for MediaPipe's "right" (user's left eye)
+        // and left threshold for MediaPipe's "left" (user's right eye)
+        const leftClosed = this.earRight < this.earThresholdLeft; // User's left eye uses right EAR
+        const rightClosed = this.earLeft < this.earThresholdRight; // User's right eye uses left EAR
+        const leftOpen = this.earRight >= this.earThresholdLeft;
+        const rightOpen = this.earLeft >= this.earThresholdRight;
         const bothOpen = leftOpen && rightOpen;
         const anyEyeClosed = leftClosed || rightClosed;
         
@@ -2596,6 +2646,12 @@ class MenuApp {
             this.earLeft = this.calculateEAR(landmarks, LEFT_EYE_POINTS);
             this.earRight = this.calculateEAR(landmarks, RIGHT_EYE_POINTS);
             
+            // Collect calibration data if calibrating
+            if (this.isCalibrating) {
+                this.collectCalibrationData();
+                this.updateEyeCharts();
+            }
+            
             this.detectSingleEyeBlink();
             
             // Update debug info if on lock screen and in debug mode
@@ -2619,10 +2675,13 @@ class MenuApp {
         const debugContent = document.getElementById('debug-content');
         if (!debugContent) return;
         
-        const leftClosed = this.earLeft < this.earThreshold;
-        const rightClosed = this.earRight < this.earThreshold;
-        const leftOpen = this.earLeft >= this.earThreshold;
-        const rightOpen = this.earRight >= this.earThreshold;
+        // Note: MediaPipe's left/right is from camera perspective (mirrored)
+        // So we use right threshold for MediaPipe's "right" (user's left eye)
+        // and left threshold for MediaPipe's "left" (user's right eye)
+        const leftClosed = this.earRight < this.earThresholdLeft; // User's left eye uses right EAR
+        const rightClosed = this.earLeft < this.earThresholdRight; // User's right eye uses left EAR
+        const leftOpen = this.earRight >= this.earThresholdLeft;
+        const rightOpen = this.earLeft >= this.earThresholdRight;
         const bothOpen = leftOpen && rightOpen;
         const anyEyeClosed = leftClosed || rightClosed;
         
@@ -2632,9 +2691,10 @@ class MenuApp {
         
         const debugItems = [
             { label: 'Face Detected', value: faceDetected ? 'Yes' : 'No', status: faceDetected ? 'success' : 'error' },
-            { label: 'Left EAR', value: faceDetected ? this.earLeft.toFixed(3) : 'N/A', status: leftClosed ? 'warning' : 'success' },
-            { label: 'Right EAR', value: faceDetected ? this.earRight.toFixed(3) : 'N/A', status: rightClosed ? 'warning' : 'success' },
-            { label: 'EAR Threshold', value: this.earThreshold.toFixed(3), status: 'normal' },
+            { label: 'Left EAR', value: faceDetected ? this.earRight.toFixed(3) : 'N/A', status: leftClosed ? 'warning' : 'success' },
+            { label: 'Right EAR', value: faceDetected ? this.earLeft.toFixed(3) : 'N/A', status: rightClosed ? 'warning' : 'success' },
+            { label: 'Left Threshold', value: this.earThresholdLeft.toFixed(3), status: 'normal' },
+            { label: 'Right Threshold', value: this.earThresholdRight.toFixed(3), status: 'normal' },
             { label: 'Left Eye', value: leftClosed ? 'CLOSED' : 'OPEN', status: leftClosed ? 'warning' : 'success' },
             { label: 'Right Eye', value: rightClosed ? 'CLOSED' : 'OPEN', status: rightClosed ? 'warning' : 'success' },
             { label: 'Both Eyes Open', value: bothOpen ? 'Yes' : 'No', status: bothOpen ? 'success' : 'warning' },
@@ -2672,8 +2732,420 @@ class MenuApp {
         noteItem.style.fontSize = '0.85rem';
         noteItem.style.fontStyle = 'italic';
         noteItem.style.color = 'var(--text-secondary)';
-        noteItem.textContent = `Tip: If eyes show as closed when open, lower EAR Threshold in browser console: app.earThreshold = 0.12; app.saveSettings(); (then refresh)`;
+        noteItem.textContent = `Tip: Adjust thresholds in console: app.earThresholdLeft = 0.12; app.earThresholdRight = 0.13; app.saveSettings(); (then refresh)`;
         debugContent.appendChild(noteItem);
+    }
+    
+    startCalibration() {
+        this.isCalibrating = true;
+        this.calibrationStep = 0;
+        this.calibrationData = {
+            bothEyesOpen: [],
+            leftEyeClosed: [],
+            leftEyeOpen: [],
+            rightEyeClosed: [],
+            rightEyeOpen: []
+        };
+        
+        // Hide camera overlay during calibration (even in debug mode)
+        const cameraOverlay = document.getElementById('camera-overlay');
+        if (cameraOverlay) {
+            cameraOverlay.classList.add('hidden');
+        }
+        
+        this.renderCalibrationScreen();
+    }
+    
+    collectCalibrationData() {
+        if (!this.isCalibrating) return;
+        
+        const stepNames = ['bothEyesOpen', 'leftEyeClosed', 'leftEyeOpen', 'rightEyeClosed', 'rightEyeOpen'];
+        const currentStepName = stepNames[this.calibrationStep];
+        
+        if (currentStepName && this.calibrationData[currentStepName]) {
+            // Note: MediaPipe's left/right is from camera perspective (mirrored)
+            // So we swap the values to match user's perspective
+            // MediaPipe's "right" EAR = user's left eye
+            // MediaPipe's "left" EAR = user's right eye
+            this.calibrationData[currentStepName].push({
+                leftEAR: this.earRight,  // Swap: MediaPipe's right = user's left
+                rightEAR: this.earLeft,  // Swap: MediaPipe's left = user's right
+                timestamp: Date.now()
+            });
+        }
+    }
+    
+    renderCalibrationScreen() {
+        // Ensure camera overlay is hidden during calibration
+        const cameraOverlay = document.getElementById('camera-overlay');
+        if (cameraOverlay) {
+            cameraOverlay.classList.add('hidden');
+        }
+        
+        const menuContainerEl = document.getElementById('menu-container');
+        if (!menuContainerEl) return;
+        
+        const stepNames = [
+            'Open both eyes',
+            'Close your left eye',
+            'Open your left eye',
+            'Close your right eye',
+            'Open your right eye'
+        ];
+        
+        const currentStepName = stepNames[this.calibrationStep];
+        const progress = this.calibrationStep / stepNames.length;
+        
+        menuContainerEl.innerHTML = '';
+        menuContainerEl.className = 'calibration-screen';
+        menuContainerEl.style.cssText = 'width: 100%; max-width: 600px;';
+        
+        const title = document.createElement('h1');
+        title.className = 'menu-title';
+        title.textContent = 'Calibrate Blink Detection';
+        menuContainerEl.appendChild(title);
+        
+        const stepTitle = document.createElement('h2');
+        stepTitle.className = 'calibration-step-title';
+        stepTitle.textContent = currentStepName;
+        stepTitle.style.cssText = 'font-size: 1.5rem; margin: 30px 0; text-align: center;';
+        menuContainerEl.appendChild(stepTitle);
+        
+        const timerDisplay = document.createElement('div');
+        timerDisplay.id = 'calibration-timer';
+        timerDisplay.className = 'calibration-timer';
+        timerDisplay.style.cssText = 'font-size: 3rem; text-align: center; margin: 20px 0; font-weight: bold;';
+        menuContainerEl.appendChild(timerDisplay);
+        
+        // Eye charts container - only show in debug mode
+        if (this.debugMode) {
+            const chartsContainer = document.createElement('div');
+            chartsContainer.className = 'calibration-charts';
+            chartsContainer.style.cssText = `
+                display: flex;
+                gap: 20px;
+                margin: 30px 0;
+                justify-content: space-around;
+            `;
+            
+            // Left eye chart
+            const leftEyeChart = this.createEyeChart('left');
+            chartsContainer.appendChild(leftEyeChart);
+            
+            // Right eye chart
+            const rightEyeChart = this.createEyeChart('right');
+            chartsContainer.appendChild(rightEyeChart);
+            
+            menuContainerEl.appendChild(chartsContainer);
+        }
+        
+        const instruction = document.createElement('p');
+        instruction.className = 'calibration-instruction';
+        instruction.textContent = 'Hold this position for 5 seconds...';
+        instruction.style.cssText = 'text-align: center; margin: 20px 0; font-size: 1.1rem;';
+        menuContainerEl.appendChild(instruction);
+        
+        this.startCalibrationStep();
+    }
+    
+    createEyeChart(eye) {
+        const chartContainer = document.createElement('div');
+        chartContainer.className = `eye-chart eye-chart-${eye}`;
+        chartContainer.style.cssText = `
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        `;
+        
+        const label = document.createElement('div');
+        label.textContent = `${eye === 'left' ? 'Left' : 'Right'} Eye EAR`;
+        label.style.cssText = `
+            font-size: 1rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: capitalize;
+        `;
+        chartContainer.appendChild(label);
+        
+        const chart = document.createElement('div');
+        chart.id = `ear-chart-${eye}`;
+        chart.className = 'ear-chart';
+        chart.style.cssText = `
+            width: 100%;
+            height: 200px;
+            background: var(--bg-white);
+            border: 4px solid var(--border-fill);
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        `;
+        
+        // Chart background with scale (0 to 1)
+        const scaleContainer = document.createElement('div');
+        scaleContainer.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 5px;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            pointer-events: none;
+        `;
+        const scaleTop = document.createElement('div');
+        scaleTop.textContent = '1.0';
+        scaleTop.style.cssText = 'text-align: right;';
+        const scaleMiddle = document.createElement('div');
+        scaleMiddle.textContent = '0.5';
+        scaleMiddle.style.cssText = 'text-align: right;';
+        const scaleBottom = document.createElement('div');
+        scaleBottom.textContent = '0.0';
+        scaleBottom.style.cssText = 'text-align: right;';
+        scaleContainer.appendChild(scaleTop);
+        scaleContainer.appendChild(scaleMiddle);
+        scaleContainer.appendChild(scaleBottom);
+        chart.appendChild(scaleContainer);
+        
+        // EAR value bar
+        const valueBar = document.createElement('div');
+        valueBar.id = `ear-value-${eye}`;
+        valueBar.className = 'ear-value-bar';
+        valueBar.style.cssText = `
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 0%;
+            background: ${eye === 'left' ? '#381DFF' : '#FF381D'};
+            transition: height 0.1s ease;
+            border-radius: 0 0 4px 4px;
+        `;
+        chart.appendChild(valueBar);
+        
+        // Current value display
+        const valueDisplay = document.createElement('div');
+        valueDisplay.id = `ear-value-display-${eye}`;
+        valueDisplay.className = 'ear-value-display';
+        valueDisplay.textContent = '0.000';
+        valueDisplay.style.cssText = `
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--text-primary);
+            z-index: 2;
+            pointer-events: none;
+        `;
+        chart.appendChild(valueDisplay);
+        
+        chartContainer.appendChild(chart);
+        
+        return chartContainer;
+    }
+    
+    updateEyeCharts() {
+        if (!this.isCalibrating || !this.debugMode) return;
+        
+        // Note: MediaPipe's left/right is from the camera's perspective (mirrored)
+        // So we need to swap the displays to match the user's perspective
+        // Update left chart with right EAR (user's left eye from their perspective)
+        const leftValueBar = document.getElementById('ear-value-left');
+        const leftValueDisplay = document.getElementById('ear-value-display-left');
+        if (leftValueBar && leftValueDisplay) {
+            // Display right EAR in left chart (because MediaPipe's "right" is user's left)
+            const normalizedValue = Math.min(1, Math.max(0, this.earRight));
+            leftValueBar.style.height = `${normalizedValue * 100}%`;
+            leftValueDisplay.textContent = this.earRight.toFixed(3);
+        }
+        
+        // Update right chart with left EAR (user's right eye from their perspective)
+        const rightValueBar = document.getElementById('ear-value-right');
+        const rightValueDisplay = document.getElementById('ear-value-display-right');
+        if (rightValueBar && rightValueDisplay) {
+            // Display left EAR in right chart (because MediaPipe's "left" is user's right)
+            const normalizedValue = Math.min(1, Math.max(0, this.earLeft));
+            rightValueBar.style.height = `${normalizedValue * 100}%`;
+            rightValueDisplay.textContent = this.earLeft.toFixed(3);
+        }
+    }
+    
+    startCalibrationStep() {
+        this.calibrationStartTime = Date.now();
+        const stepDuration = this.calibrationStepDuration;
+        
+        const updateTimer = () => {
+            if (!this.isCalibrating) return;
+            
+            const elapsed = Date.now() - this.calibrationStartTime;
+            const remaining = Math.max(0, stepDuration - elapsed);
+            const seconds = Math.ceil(remaining / 1000);
+            
+            const timerDisplay = document.getElementById('calibration-timer');
+            if (timerDisplay) {
+                timerDisplay.textContent = seconds;
+            }
+            
+            if (remaining > 0) {
+                this.calibrationTimer = setTimeout(updateTimer, 100);
+            } else {
+                this.completeCalibrationStep();
+            }
+        };
+        
+        updateTimer();
+    }
+    
+    completeCalibrationStep() {
+        this.calibrationStep++;
+        const totalSteps = 5;
+        
+        if (this.calibrationStep < totalSteps) {
+            // Move to next step
+            this.renderCalibrationScreen();
+        } else {
+            // All steps complete - calculate threshold
+            this.finishCalibration();
+        }
+    }
+    
+    finishCalibration() {
+        // Calculate averages
+        // Note: calibrationData already has swapped values (leftEAR = user's left, rightEAR = user's right)
+        const avgBothOpen = this.calculateAverage(this.calibrationData.bothEyesOpen);
+        const avgLeftClosed = this.calculateAverage(this.calibrationData.leftEyeClosed);
+        const avgLeftOpen = this.calculateAverage(this.calibrationData.leftEyeOpen);
+        const avgRightClosed = this.calculateAverage(this.calibrationData.rightEyeClosed);
+        const avgRightOpen = this.calculateAverage(this.calibrationData.rightEyeOpen);
+        
+        // Debug: log the averages to console
+        console.log('Calibration averages:', {
+            bothOpen: avgBothOpen,
+            leftClosed: avgLeftClosed,
+            leftOpen: avgLeftOpen,
+            rightClosed: avgRightClosed,
+            rightOpen: avgRightOpen
+        });
+        
+        // Calculate separate thresholds for each eye
+        // Left eye threshold: based on left eye open/closed data
+        const leftEyeClosedAvg = avgLeftClosed.leftEAR; // User's left eye when closed
+        const leftEyeOpenAvg = (avgBothOpen.leftEAR + avgLeftOpen.leftEAR) / 2; // User's left eye when open
+        
+        // Right eye threshold: based on right eye open/closed data
+        const rightEyeClosedAvg = avgRightClosed.rightEAR; // User's right eye when closed
+        const rightEyeOpenAvg = (avgBothOpen.rightEAR + avgRightOpen.rightEAR) / 2; // User's right eye when open
+        
+        // Calculate thresholds: midpoint between closed and open, with a small buffer
+        // Use a more conservative approach: threshold should be closer to closed value
+        const leftEyeRange = leftEyeOpenAvg - leftEyeClosedAvg;
+        const leftEyeThreshold = leftEyeClosedAvg + (leftEyeRange * 0.3); // 30% from closed toward open
+        this.earThresholdLeft = Math.max(0.10, Math.min(0.30, leftEyeThreshold));
+        
+        const rightEyeRange = rightEyeOpenAvg - rightEyeClosedAvg;
+        const rightEyeThreshold = rightEyeClosedAvg + (rightEyeRange * 0.3); // 30% from closed toward open
+        this.earThresholdRight = Math.max(0.10, Math.min(0.30, rightEyeThreshold));
+        
+        // Debug: log calculated thresholds
+        console.log('Calculated thresholds:', {
+            leftEyeClosedAvg,
+            leftEyeOpenAvg,
+            leftEyeRange,
+            leftEyeThreshold,
+            earThresholdLeft: this.earThresholdLeft,
+            rightEyeClosedAvg,
+            rightEyeOpenAvg,
+            rightEyeRange,
+            rightEyeThreshold,
+            earThresholdRight: this.earThresholdRight
+        });
+        
+        // Save the thresholds
+        this.saveSettings();
+        
+        // Show completion screen
+        this.showCalibrationComplete();
+    }
+    
+    calculateAverage(dataArray) {
+        if (!dataArray || dataArray.length === 0) {
+            return { leftEAR: 0, rightEAR: 0 };
+        }
+        
+        const sum = dataArray.reduce((acc, sample) => ({
+            leftEAR: acc.leftEAR + sample.leftEAR,
+            rightEAR: acc.rightEAR + sample.rightEAR
+        }), { leftEAR: 0, rightEAR: 0 });
+        
+        return {
+            leftEAR: sum.leftEAR / dataArray.length,
+            rightEAR: sum.rightEAR / dataArray.length
+        };
+    }
+    
+    showCalibrationComplete() {
+        const menuContainerEl = document.getElementById('menu-container');
+        if (!menuContainerEl) return;
+        
+        this.isCalibrating = false;
+        if (this.calibrationTimer) {
+            clearTimeout(this.calibrationTimer);
+            this.calibrationTimer = null;
+        }
+        
+        menuContainerEl.innerHTML = '';
+        menuContainerEl.className = '';
+        
+        const title = document.createElement('h1');
+        title.className = 'menu-title';
+        title.textContent = 'Calibration Complete!';
+        menuContainerEl.appendChild(title);
+        
+        const result = document.createElement('div');
+        result.style.cssText = 'text-align: center; margin: 30px 0; padding: 20px; background: rgba(226, 222, 255, 0.3); border-radius: 8px;';
+        
+        const thresholdText = document.createElement('p');
+        thresholdText.style.cssText = 'font-size: 1.3rem; margin: 15px 0;';
+        thresholdText.textContent = `Left Eye Threshold: ${this.earThresholdLeft.toFixed(3)}`;
+        result.appendChild(thresholdText);
+        
+        const thresholdTextRight = document.createElement('p');
+        thresholdTextRight.style.cssText = 'font-size: 1.3rem; margin: 15px 0;';
+        thresholdTextRight.textContent = `Right Eye Threshold: ${this.earThresholdRight.toFixed(3)}`;
+        result.appendChild(thresholdTextRight);
+        
+        const explanation = document.createElement('p');
+        explanation.style.cssText = 'font-size: 1rem; margin: 15px 0; color: var(--text-secondary);';
+        explanation.textContent = 'This threshold has been saved and will be used for blink detection.';
+        result.appendChild(explanation);
+        
+        menuContainerEl.appendChild(result);
+        
+        const backButton = document.createElement('button');
+        backButton.className = 'calibrate-button';
+        backButton.textContent = 'Back to Lock Screen';
+        backButton.style.cssText = `
+            margin-top: 30px;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            background: var(--bg-white);
+            border: 4px solid var(--border-fill);
+            border-radius: 8px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-family: "Comic Relief", system-ui;
+            font-weight: 400;
+        `;
+        backButton.addEventListener('click', () => {
+            this.renderMenu();
+        });
+        menuContainerEl.appendChild(backButton);
     }
 }
 
