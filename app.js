@@ -98,6 +98,13 @@ class MenuApp {
         // Debug mode - check URL for ?debug parameter
         this.debugMode = this.isDebugMode();
         
+        // Check if we should skip the lock screen (for development)
+        const shouldSkipLockscreen = this.shouldSkipLockscreen();
+        if (shouldSkipLockscreen) {
+            this.currentMenu = 'main';
+            this.isLocked = false;
+        }
+        
         // Calibration state
         this.isCalibrating = false;
         this.calibrationStep = 0;
@@ -125,6 +132,11 @@ class MenuApp {
     isDebugMode() {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.has('debug');
+    }
+    
+    shouldSkipLockscreen() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.has('skipLockscreen');
     }
     
     loadSettings() {
@@ -171,9 +183,8 @@ class MenuApp {
             main: [
                 { id: 'lock', title: 'Rest', subtitle: 'Lock the app to rest' },
                 { id: 'write', title: 'Write', subtitle: 'with predictive assistance' },
-                { id: 'saved-text', title: 'Saved text', subtitle: 'View and manage saved text' },
-                { id: 'minesweeper', title: 'Minesweeper', subtitle: 'Classic minesweeper game' },
-                { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' }
+                { id: 'minesweeper', title: 'Play Minesweeper' },
+                { id: 'settings', title: 'Settings' }
             ],
             write: [
                 { id: 'back', title: 'Back', subtitle: '' }
