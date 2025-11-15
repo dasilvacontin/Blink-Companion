@@ -504,8 +504,7 @@ class MenuApp {
     handleFlagAction() {
         this.minesweeperGame.toggleFlag(this.selectedRow, this.selectedCol);
         
-        // Update play area to 7x7 centered on this square
-        this.updatePlayAreaAfterAction(this.selectedRow, this.selectedCol);
+        // Don't update play area for flag actions - only mines move the center
         
         // Re-render board and return to row selection
         this.resetRowSelection();
@@ -1048,7 +1047,24 @@ class MenuApp {
         this.actionColumn = null;
         this.columnSelectionStartIndex = null;
         this.gameMode = 'row-selection';
-        this.currentIndex = 0;
+        
+        // Set currentIndex to the first row in the play area (top of 5x5)
+        if (this.minesweeperGame) {
+            const boardState = this.minesweeperGame.getBoardState();
+            const availableRows = this.getAvailableRows(boardState);
+            if (availableRows.length > 0) {
+                // Find the first row in the play area
+                const playAreaStartRow = this.playAreaStartRow !== null ? this.playAreaStartRow : 0;
+                // Find the index of the first available row that is >= playAreaStartRow
+                const firstRowIndex = availableRows.findIndex(row => row >= playAreaStartRow);
+                this.currentIndex = firstRowIndex >= 0 ? firstRowIndex : 0;
+            } else {
+                this.currentIndex = 0;
+            }
+        } else {
+            this.currentIndex = 0;
+        }
+        
         this.renderMinesweeperGame();
     }
     
@@ -1111,9 +1127,11 @@ class MenuApp {
                         
                         if (this.selectionProgress >= 1) {
                             // Complete blink on highlighted column - perform mine action
+                            // Store actionColumn before cancelSelection clears it
+                            const mineRow = this.selectedRow;
+                            const mineCol = this.actionColumn;
                             this.cancelSelection();
-                            this.handleMineActionOnColumn(this.selectedRow, this.actionColumn);
-                            this.actionColumn = null;
+                            this.handleMineActionOnColumn(mineRow, mineCol);
                             this.resetBlinkState();
                         } else {
                             this.selectionAnimationFrame = requestAnimationFrame(animate);
@@ -1278,10 +1296,8 @@ class MenuApp {
         this.updateHighlightedAreaProgress(0);
         
         // If we were acting on a highlighted column and released early (didn't complete mine action),
-        // we already toggled the flag, so just update play area and continue column selection
+        // we already toggled the flag, so just continue column selection (don't update play area)
         if (wasActingOnColumn && actionCol !== null) {
-            // Update play area after flag toggle
-            this.updatePlayAreaAfterAction(this.selectedRow, actionCol);
             // Reset the cycle tracking since user took an action
             this.columnSelectionStartIndex = this.currentIndex;
             // Re-render to show the flag change
