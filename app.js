@@ -56,6 +56,7 @@ class MenuApp {
         this.lockScreenAnimationFrame = null; // Animation frame for lock screen progress
         this.sosFullFillTime = null; // When the square reached 100% fill
         this.sosInactivityTimeout = null; // Timeout for resetting pattern after 5 seconds without success
+        this.sosRequireEyesOpen = false; // Require eyes to be open before starting new blink after reset
         
         // MediaPipe
         this.faceMesh = null;
@@ -172,7 +173,7 @@ class MenuApp {
             
             // Reset SOS pattern state if just entering lock screen
             if (this.sosStep === 0 && this.sosBlinkStartTime === null && this.sosFullFillTime === null) {
-                this.resetSOSPattern();
+                this.resetSOSPattern(false); // Don't require eyes open when first entering
             }
             
             // Stop auto-scroll when on lock screen
@@ -660,6 +661,17 @@ class MenuApp {
         const expectedDuration = this.sosPattern[this.sosStep];
         const OVERFILL_THRESHOLD = 0.5; // 0.5 seconds after full fill is a mistake
         
+        // If we require eyes to be open (after a reset), check if they are open now
+        if (this.sosRequireEyesOpen) {
+            if (bothOpen) {
+                // Eyes are now open - allow new blinks
+                this.sosRequireEyesOpen = false;
+            } else {
+                // Eyes still closed - don't process anything until they open
+                return;
+            }
+        }
+        
         if (anyEyeClosed) {
             if (this.sosBlinkStartTime === null) {
                 // Just started blinking
@@ -672,7 +684,7 @@ class MenuApp {
                     const overfillDuration = (now - this.sosFullFillTime) / 1000;
                     if (overfillDuration > OVERFILL_THRESHOLD) {
                         // Held too long after full fill - reset the whole lock screen
-                        this.resetSOSPattern();
+                        this.resetSOSPattern(true); // Pass true to indicate this was due to over-hold
                         return;
                     }
                 }
@@ -702,7 +714,7 @@ class MenuApp {
                 }
             } else {
                 // Released before square was fully filled - reset the whole lock screen
-                this.resetSOSPattern();
+                this.resetSOSPattern(false); // Not due to over-hold, so don't require eyes open
             }
         }
     }
@@ -711,7 +723,7 @@ class MenuApp {
         // Start or restart the timeout for 5 seconds without successfully completing a square
         this.clearFailureTimeout();
         this.sosInactivityTimeout = setTimeout(() => {
-            this.resetSOSPattern();
+            this.resetSOSPattern(false); // Timeout reset doesn't require eyes open
         }, 5000); // 5 seconds without success
     }
     
@@ -780,12 +792,15 @@ class MenuApp {
         });
     }
     
-    resetSOSPattern() {
+    resetSOSPattern(requireEyesOpen = false) {
         this.clearFailureTimeout();
         this.sosStep = 0;
         this.sosBlinkStartTime = null;
         this.sosBlinkDuration = 0;
         this.sosFullFillTime = null;
+        
+        // If reset was due to over-holding, require eyes to be open before new blink
+        this.sosRequireEyesOpen = requireEyesOpen;
         
         // Clear all progress fills
         const lockScreen = document.querySelector('.lock-screen');
@@ -810,6 +825,7 @@ class MenuApp {
         this.sosBlinkStartTime = null;
         this.sosBlinkDuration = 0;
         this.sosFullFillTime = null;
+        this.sosRequireEyesOpen = false; // Reset the flag
         this.clearFailureTimeout();
         
         // Stop lock screen animation
