@@ -262,6 +262,61 @@ body {
     font-weight: normal;
 }
 
+/* Debug Panel Styles */
+.debug-panel {
+    margin-top: 30px;
+    width: 100%;
+    max-width: 600px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 4px solid var(--border-fill);
+    border-radius: 8px;
+    padding: 20px;
+    font-size: 0.9rem;
+}
+
+.debug-title {
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    margin-bottom: 15px;
+    font-weight: bold;
+}
+
+.debug-content {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    font-family: monospace;
+}
+
+.debug-item {
+    padding: 8px;
+    background: rgba(226, 222, 255, 0.3);
+    border-radius: 4px;
+}
+
+.debug-label {
+    font-weight: bold;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.debug-value {
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.debug-value.warning {
+    color: #ff6b00;
+}
+
+.debug-value.error {
+    color: #ff0000;
+}
+
+.debug-value.success {
+    color: #008000;
+}
+
         .lock-square .progress-fill {
             position: absolute;
             left: 0;

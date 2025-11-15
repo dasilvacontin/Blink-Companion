@@ -2579,12 +2579,73 @@ class MenuApp {
             this.earRight = this.calculateEAR(landmarks, RIGHT_EYE_POINTS);
             
             this.detectSingleEyeBlink();
+            
+            // Update debug info if on lock screen
+            if (this.currentMenu === 'lock' || this.isLocked) {
+                this.updateDebugInfo(true);
+            }
         } else {
             this.isWinking = false;
             this.winkingEye = null;
             this.cancelSelection();
             this.eyesWereOpen = false; // Reset when face not detected
+            
+            // Update debug info - no face detected
+            if (this.currentMenu === 'lock' || this.isLocked) {
+                this.updateDebugInfo(false);
+            }
         }
+    }
+    
+    updateDebugInfo(faceDetected) {
+        const debugContent = document.getElementById('debug-content');
+        if (!debugContent) return;
+        
+        const leftClosed = this.earLeft < EAR_THRESHOLD;
+        const rightClosed = this.earRight < EAR_THRESHOLD;
+        const leftOpen = this.earLeft >= EAR_THRESHOLD;
+        const rightOpen = this.earRight >= EAR_THRESHOLD;
+        const bothOpen = leftOpen && rightOpen;
+        const anyEyeClosed = leftClosed || rightClosed;
+        
+        const debounceStatus = this.eyeClosedStartTime !== null 
+            ? `Active (${Date.now() - this.eyeClosedStartTime}ms)`
+            : 'Inactive';
+        
+        const debugItems = [
+            { label: 'Face Detected', value: faceDetected ? 'Yes' : 'No', status: faceDetected ? 'success' : 'error' },
+            { label: 'Left EAR', value: faceDetected ? this.earLeft.toFixed(3) : 'N/A', status: leftClosed ? 'warning' : 'success' },
+            { label: 'Right EAR', value: faceDetected ? this.earRight.toFixed(3) : 'N/A', status: rightClosed ? 'warning' : 'success' },
+            { label: 'EAR Threshold', value: EAR_THRESHOLD.toFixed(3), status: 'normal' },
+            { label: 'Left Eye', value: leftClosed ? 'CLOSED' : 'OPEN', status: leftClosed ? 'warning' : 'success' },
+            { label: 'Right Eye', value: rightClosed ? 'CLOSED' : 'OPEN', status: rightClosed ? 'warning' : 'success' },
+            { label: 'Both Eyes Open', value: bothOpen ? 'Yes' : 'No', status: bothOpen ? 'success' : 'warning' },
+            { label: 'Any Eye Closed', value: anyEyeClosed ? 'Yes' : 'No', status: anyEyeClosed ? 'warning' : 'success' },
+            { label: 'Is Winking', value: this.isWinking ? 'Yes' : 'No', status: this.isWinking ? 'warning' : 'success' },
+            { label: 'Winking Eye', value: this.winkingEye || 'None', status: this.winkingEye ? 'warning' : 'success' },
+            { label: 'Debounce Timer', value: debounceStatus, status: this.eyeClosedStartTime !== null ? 'warning' : 'success' },
+            { label: 'Eyes Were Open', value: this.eyesWereOpen ? 'Yes' : 'No', status: this.eyesWereOpen ? 'success' : 'warning' },
+            { label: 'SOS Step', value: `${this.sosStep}/8`, status: 'normal' },
+            { label: 'Is Selecting', value: this.isSelecting ? 'Yes' : 'No', status: this.isSelecting ? 'warning' : 'success' },
+        ];
+        
+        debugContent.innerHTML = '';
+        debugItems.forEach(item => {
+            const debugItem = document.createElement('div');
+            debugItem.className = 'debug-item';
+            
+            const label = document.createElement('div');
+            label.className = 'debug-label';
+            label.textContent = item.label;
+            
+            const value = document.createElement('div');
+            value.className = `debug-value ${item.status}`;
+            value.textContent = item.value;
+            
+            debugItem.appendChild(label);
+            debugItem.appendChild(value);
+            debugContent.appendChild(debugItem);
+        });
     }
 }
 
