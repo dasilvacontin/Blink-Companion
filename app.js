@@ -300,28 +300,64 @@ class MenuApp {
                 }
             }
             
-            // Append all options from SettingsDetail
+            // Append all options from SettingsDetail and map them
+            // SettingsDetail creates: Decrease (0), Value (1), Increase (2), Back (3)
+            const optionsMap = [];
             Array.from(settingsDetail.children).forEach((optionEl, index) => {
+                const optionId = optionEl.dataset.id;
+                
+                // Mark value display as non-selectable
+                if (optionId === 'value') {
+                    optionEl.style.pointerEvents = 'none';
+                    optionEl.dataset.selectable = 'false';
+                    menuOptions.appendChild(optionEl);
+                    // Still add to options array but mark it
+                    if (this.currentMenu === 'minesweeper-focus-area-size') {
+                        optionsMap.push({ id: 'value', title: `${currentValue}x${currentValue}`, subtitle: '', selectable: false });
+                    } else {
+                        optionsMap.push({ id: 'value', title: `${currentValue.toFixed(1)} s`, subtitle: '', selectable: false });
+                    }
+                    return;
+                }
+                
                 optionEl.dataset.index = index;
                 menuOptions.appendChild(optionEl);
+                
+                // Check for disabled states
+                let disabled = false;
+                if (optionId === 'decrease') {
+                    if (this.currentMenu === 'minesweeper-focus-area-size') {
+                        disabled = currentValue <= 3;
+                    } else if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
+                        disabled = currentValue <= 0.1;
+                    }
+                    if (disabled) {
+                        optionEl.style.opacity = '0.5';
+                        optionEl.style.pointerEvents = 'none';
+                        optionEl.dataset.disabled = 'true';
+                    }
+                    optionsMap.push({ id: 'decrease', title: '- Decrease -', subtitle: '', disabled });
+                } else if (optionId === 'increase') {
+                    if (this.currentMenu === 'minesweeper-focus-area-size') {
+                        disabled = currentValue >= 9;
+                    }
+                    if (disabled) {
+                        optionEl.style.opacity = '0.5';
+                        optionEl.style.pointerEvents = 'none';
+                        optionEl.dataset.disabled = 'true';
+                    }
+                    optionsMap.push({ id: 'increase', title: '+ Increase +', subtitle: '', disabled });
+                } else if (optionId === 'back') {
+                    if (this.currentMenu === 'minesweeper-focus-area-size') {
+                        optionsMap.push({ id: 'back', title: 'Back', subtitle: '' });
+                    } else {
+                        optionsMap.push({ id: 'back', title: 'Back', subtitle: 'Return to previous menu' });
+                    }
+                }
             });
             
-            // Map the options for selection logic
-            if (this.currentMenu === 'minesweeper-focus-area-size') {
-                this.options = [
-                    { id: 'back', title: 'Back', subtitle: '' },
-                    { id: 'decrease', title: '- Decrease -', subtitle: '' },
-                    { id: 'value', title: `${currentValue}x${currentValue}`, subtitle: '' },
-                    { id: 'increase', title: '+ Increase +', subtitle: '' }
-                ];
-            } else {
-                this.options = [
-                    { id: 'decrease', title: '- Decrease -', subtitle: '' },
-                    { id: 'value', title: `${currentValue.toFixed(1)} s`, subtitle: '' },
-                    { id: 'increase', title: '+ Increase +', subtitle: '' },
-                    { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
-                ];
-            }
+            // Set options array matching DOM order: Decrease, Value, Increase, Back
+            this.options = optionsMap;
         } else {
             // Use MenuContainer component for regular menus
             // Update settings menu values dynamically before rendering
@@ -398,11 +434,14 @@ class MenuApp {
     updateHighlight() {
         const optionEls = document.querySelectorAll('.menu-option');
         optionEls.forEach((el, index) => {
-            // Skip highlighting value display
-            const titleEl = el.querySelector('.menu-option-title');
-            const isValueDisplay = titleEl && titleEl.textContent.includes(' s') && !titleEl.textContent.includes('-') && !titleEl.textContent.includes('+');
+            // Skip highlighting value display and disabled options
+            if (el.dataset.selectable === 'false' || el.dataset.disabled === 'true') {
+                el.classList.remove('highlighted');
+                return;
+            }
             
-            if (index === this.currentIndex && !isValueDisplay) {
+            // Use index-based highlighting (original logic)
+            if (index === this.currentIndex) {
                 el.classList.add('highlighted');
             } else {
                 el.classList.remove('highlighted');
@@ -417,15 +456,35 @@ class MenuApp {
         
         this.scrollInterval = setInterval(() => {
             if (!this.isSelecting) {
-                // Skip value display option in settings detail pages
-                let nextIndex = (this.currentIndex + 1) % this.options.length;
-                if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold') {
-                    // Skip value option (index 1)
-                    if (nextIndex === 1) {
-                        nextIndex = (nextIndex + 1) % this.options.length;
+                // Get selectable options (skip value and disabled)
+                const getSelectableIndices = () => {
+                    const selectable = [];
+                    this.options.forEach((opt, idx) => {
+                        if (opt.selectable === false || opt.disabled) return;
+                        selectable.push(idx);
+                    });
+                    return selectable;
+                };
+                
+                const selectableIndices = getSelectableIndices();
+                
+                if (selectableIndices.length > 0) {
+                    // Find current index in selectable list
+                    let currentSelectableIdx = selectableIndices.indexOf(this.currentIndex);
+                    
+                    // If current is not selectable, use first selectable
+                    if (currentSelectableIdx < 0) {
+                        currentSelectableIdx = 0;
                     }
+                    
+                    // Move to next selectable
+                    currentSelectableIdx = (currentSelectableIdx + 1) % selectableIndices.length;
+                    this.currentIndex = selectableIndices[currentSelectableIdx];
+                } else {
+                    // Fallback
+                    this.currentIndex = (this.currentIndex + 1) % this.options.length;
                 }
-                this.currentIndex = nextIndex;
+                
                 this.updateHighlight();
             }
         }, this.scrollSpeed * 1000);
@@ -655,10 +714,12 @@ class MenuApp {
             this.saveSettings();
             this.startAutoScroll(); // Restart with new speed
             this.updateValueDisplay();
+            this.updateDisabledStates();
         } else if (this.currentMenu === 'blink-threshold') {
             this.blinkThreshold = Math.max(0.1, this.blinkThreshold - 0.1);
             this.saveSettings();
             this.updateValueDisplay();
+            this.updateDisabledStates();
         }
         // Update settings menu values if we're going back to settings
         this.updateSettingsMenu();
@@ -670,10 +731,12 @@ class MenuApp {
             this.saveSettings();
             this.startAutoScroll(); // Restart with new speed
             this.updateValueDisplay();
+            this.updateDisabledStates();
         } else if (this.currentMenu === 'blink-threshold') {
             this.blinkThreshold += 0.1;
             this.saveSettings();
             this.updateValueDisplay();
+            this.updateDisabledStates();
         }
         // Update settings menu values if we're going back to settings
         this.updateSettingsMenu();
@@ -753,6 +816,7 @@ class MenuApp {
             // Decrease by 2 (3x3, 5x5, 7x7, 9x9)
             this.focusAreaSize -= 2;
             this.updateValueDisplay();
+            this.updateDisabledStates();
         }
     }
     
@@ -761,6 +825,76 @@ class MenuApp {
             // Increase by 2 (3x3, 5x5, 7x7, 9x9)
             this.focusAreaSize += 2;
             this.updateValueDisplay();
+            this.updateDisabledStates();
+        }
+    }
+    
+    updateDisabledStates() {
+        if (this.currentMenu === 'minesweeper-focus-area-size' || 
+            this.currentMenu === 'scroll-speed' || 
+            this.currentMenu === 'blink-threshold') {
+            const menuOptions = document.getElementById('menu-options');
+            if (!menuOptions) return;
+            
+            let currentValue;
+            if (this.currentMenu === 'minesweeper-focus-area-size') {
+                currentValue = this.focusAreaSize;
+            } else if (this.currentMenu === 'scroll-speed') {
+                currentValue = this.scrollSpeed;
+            } else if (this.currentMenu === 'blink-threshold') {
+                currentValue = this.blinkThreshold;
+            }
+            
+            // Update decrease button
+            const decreaseEl = menuOptions.querySelector('[data-id="decrease"]');
+            if (decreaseEl) {
+                let shouldDisable = false;
+                if (this.currentMenu === 'minesweeper-focus-area-size') {
+                    shouldDisable = currentValue <= 3;
+                } else {
+                    shouldDisable = currentValue <= 0.1;
+                }
+                
+                if (shouldDisable) {
+                    decreaseEl.style.opacity = '0.5';
+                    decreaseEl.style.pointerEvents = 'none';
+                    decreaseEl.dataset.disabled = 'true';
+                    const decreaseOption = this.options.find(opt => opt.id === 'decrease');
+                    if (decreaseOption) decreaseOption.disabled = true;
+                } else {
+                    decreaseEl.style.opacity = '1';
+                    decreaseEl.style.pointerEvents = 'auto';
+                    decreaseEl.dataset.disabled = 'false';
+                    const decreaseOption = this.options.find(opt => opt.id === 'decrease');
+                    if (decreaseOption) decreaseOption.disabled = false;
+                }
+            }
+            
+            // Update increase button
+            const increaseEl = menuOptions.querySelector('[data-id="increase"]');
+            if (increaseEl) {
+                let shouldDisable = false;
+                if (this.currentMenu === 'minesweeper-focus-area-size') {
+                    shouldDisable = currentValue >= 9;
+                }
+                
+                if (shouldDisable) {
+                    increaseEl.style.opacity = '0.5';
+                    increaseEl.style.pointerEvents = 'none';
+                    increaseEl.dataset.disabled = 'true';
+                    const increaseOption = this.options.find(opt => opt.id === 'increase');
+                    if (increaseOption) increaseOption.disabled = true;
+                } else {
+                    increaseEl.style.opacity = '1';
+                    increaseEl.style.pointerEvents = 'auto';
+                    increaseEl.dataset.disabled = 'false';
+                    const increaseOption = this.options.find(opt => opt.id === 'increase');
+                    if (increaseOption) increaseOption.disabled = false;
+                }
+            }
+            
+            // Update highlight after state changes
+            this.updateHighlight();
         }
     }
     
