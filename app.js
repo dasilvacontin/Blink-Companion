@@ -730,14 +730,7 @@ class MenuApp {
             // Handle game over menu selection
             if (this.options.length === 0) return;
             const option = this.options[this.currentIndex];
-            if (option.id === 'play-again') {
-                // Restart the game with same settings
-                // Clear the old game first
-                this.minesweeperGame = null;
-                this.gameInProgress = false;
-                localStorage.removeItem('minesweeperGameState'); // Clear saved state
-                this.startMinesweeperGame();
-            } else if (option.id === 'exit-game') {
+            if (option.id === 'exit-game') {
                 // Clear game completely when exiting from game over
                 this.minesweeperGame = null;
                 this.gameInProgress = false;
@@ -748,6 +741,11 @@ class MenuApp {
     }
     
     handleMineAction() {
+        // Don't allow actions if game is over
+        if (this.gameMode === 'game-over') {
+            return;
+        }
+        
         // Check if square is flagged - if so, unflag it first (since we toggled flag on blink start)
         const squareState = this.minesweeperGame.getSquareState(this.selectedRow, this.selectedCol);
         if (squareState.flagged) {
@@ -761,6 +759,12 @@ class MenuApp {
             // Game is finished - clear saved state
             localStorage.removeItem('minesweeperGameState');
             this.gameInProgress = false;
+            
+            // Stop auto-scroll
+            if (this.scrollInterval) {
+                clearInterval(this.scrollInterval);
+                this.scrollInterval = null;
+            }
             
             if (result.won) {
                 // Handle win - show win menu
@@ -787,7 +791,31 @@ class MenuApp {
     }
     
     handleFlagAction() {
-        this.minesweeperGame.toggleFlag(this.selectedRow, this.selectedCol);
+        // Don't allow actions if game is over
+        if (this.gameMode === 'game-over') {
+            return;
+        }
+        
+        const result = this.minesweeperGame.toggleFlag(this.selectedRow, this.selectedCol);
+        
+        // Check if flagging resulted in a win
+        if (result.gameOver && result.won) {
+            // Game is finished - clear saved state
+            localStorage.removeItem('minesweeperGameState');
+            this.gameInProgress = false;
+            
+            // Stop auto-scroll
+            if (this.scrollInterval) {
+                clearInterval(this.scrollInterval);
+                this.scrollInterval = null;
+            }
+            
+            // Handle win - show win menu
+            this.gameMode = 'game-over';
+            this.currentIndex = 0;
+            this.renderMinesweeperGame();
+            return;
+        }
         
         // Don't update play area for flag actions - only mines move the center
         
@@ -1516,16 +1544,14 @@ class MenuApp {
         menuContainer.className = 'minesweeper-game-over-menu';
         menuContainer.id = 'menu-options';
         
-        // Create menu options
+        // Determine win/loss status
+        const statusText = boardState.won ? 'You won' : 'You lost';
+        
+        // Create menu options - only Exit Game (removed Play Again)
         const gameOverOptions = [
             {
-                id: 'play-again',
-                title: 'Play Again',
-                isAction: true
-            },
-            {
                 id: 'exit-game',
-                title: 'Exit Game',
+                title: `Exit Game (${statusText})`,
                 isExitGame: true
             }
         ];
@@ -1617,9 +1643,36 @@ class MenuApp {
             clearInterval(this.scrollInterval);
         }
         
+        // Don't start auto-scroll if game is over
+        const boardState = this.minesweeperGame ? this.minesweeperGame.getBoardState() : null;
+        if (boardState && boardState.gameOver) {
+            return;
+        }
+        
         this.scrollInterval = setInterval(() => {
             if (!this.isSelecting && this.minesweeperMode) {
+                // Check if game is over - if so, only allow menu scrolling, not board selections
+                const currentBoardState = this.minesweeperGame ? this.minesweeperGame.getBoardState() : null;
+                if (currentBoardState && currentBoardState.gameOver) {
+                    // If game is over but we're in game-over menu mode, allow menu scrolling
+                    if (this.gameMode === 'game-over') {
+                        // Allow scrolling through game-over menu options
+                        // This is handled below in the game-over section
+                    } else {
+                        // Game is over but not in game-over menu - stop auto-scroll
+                        if (this.scrollInterval) {
+                            clearInterval(this.scrollInterval);
+                            this.scrollInterval = null;
+                        }
+                        return;
+                    }
+                }
+                
                 if (this.gameMode === 'square-selection' || this.gameMode === 'row-selection' || this.gameMode === 'column-selection') {
+                    // Don't allow board selections if game is over
+                    if (currentBoardState && currentBoardState.gameOver) {
+                        return;
+                    }
                     // For board-based selection, just update the index and re-render
                     const boardState = this.minesweeperGame.getBoardState();
                 if (this.gameMode === 'square-selection') {
@@ -1745,9 +1798,20 @@ class MenuApp {
         if (this.isSelecting) return;
         if (!this.eyesWereOpen) return; // Don't start if eyes weren't open first
         
+        // Handle game-over menu selections
+        if (this.minesweeperMode && this.gameMode === 'game-over') {
+            // Allow selections in game-over menu - this will fall through to menu option selection
+            // Don't return early - let it proceed to menu option selection logic
+        }
+        
         // For board-based selection (row/column/square), we don't need progress indicators
         // The selection happens directly on the board
         if (this.minesweeperMode && (this.gameMode === 'square-selection' || this.gameMode === 'row-selection' || this.gameMode === 'column-selection')) {
+            // Check if game is over - if so, don't allow board selections
+            const currentBoardState = this.minesweeperGame ? this.minesweeperGame.getBoardState() : null;
+            if (currentBoardState && currentBoardState.gameOver) {
+                return; // Game is over - don't allow board selections
+            }
             // Check if we're in square-selection mode (3x3 areas)
             if (this.gameMode === 'square-selection') {
                 const boardState = this.minesweeperGame.getBoardState();
@@ -1783,8 +1847,32 @@ class MenuApp {
                         // Re-check square state in case it changed
                         const currentSquareState = this.minesweeperGame.getSquareState(highlightedSquare.row, highlightedSquare.col);
                         if (!this.flagToggled && this.selectionProgress >= flagToggleThreshold && !currentSquareState.revealed) {
-                            this.minesweeperGame.toggleFlag(highlightedSquare.row, highlightedSquare.col);
+                            const flagResult = this.minesweeperGame.toggleFlag(highlightedSquare.row, highlightedSquare.col);
                             this.flagToggled = true;
+                            
+                            // Check if flagging resulted in a win
+                            if (flagResult.gameOver && flagResult.won) {
+                                // Game is finished - clear saved state
+                                localStorage.removeItem('minesweeperGameState');
+                                this.gameInProgress = false;
+                                
+                                // Stop auto-scroll
+                                if (this.scrollInterval) {
+                                    clearInterval(this.scrollInterval);
+                                    this.scrollInterval = null;
+                                }
+                                
+                                // Cancel selection animation
+                                this.cancelSelection();
+                                
+                                // Handle win - show win menu
+                                this.gameMode = 'game-over';
+                                this.currentIndex = 0;
+                                this.renderMinesweeperGame();
+                                this.resetBlinkState();
+                                return;
+                            }
+                            
                             // Autosave game state after board modification
                             this.saveGameState();
                             // Re-render immediately to show the flag change
@@ -1846,8 +1934,32 @@ class MenuApp {
                         // Re-check square state in case it changed
                         const currentSquareState = this.minesweeperGame.getSquareState(this.selectedRow, highlightedCol);
                         if (!this.flagToggled && this.selectionProgress >= flagToggleThreshold && !currentSquareState.revealed) {
-                            this.minesweeperGame.toggleFlag(this.selectedRow, highlightedCol);
+                            const flagResult = this.minesweeperGame.toggleFlag(this.selectedRow, highlightedCol);
                             this.flagToggled = true;
+                            
+                            // Check if flagging resulted in a win
+                            if (flagResult.gameOver && flagResult.won) {
+                                // Game is finished - clear saved state
+                                localStorage.removeItem('minesweeperGameState');
+                                this.gameInProgress = false;
+                                
+                                // Stop auto-scroll
+                                if (this.scrollInterval) {
+                                    clearInterval(this.scrollInterval);
+                                    this.scrollInterval = null;
+                                }
+                                
+                                // Cancel selection animation
+                                this.cancelSelection();
+                                
+                                // Handle win - show win menu
+                                this.gameMode = 'game-over';
+                                this.currentIndex = 0;
+                                this.renderMinesweeperGame();
+                                this.resetBlinkState();
+                                return;
+                            }
+                            
                             // Autosave game state after board modification
                             this.saveGameState();
                             // Re-render immediately to show the flag change
@@ -2172,6 +2284,11 @@ class MenuApp {
     }
     
     handleMineActionOnSquare(row, col) {
+        // Don't allow actions if game is over
+        if (this.gameMode === 'game-over') {
+            return;
+        }
+        
         // Handle mine action on a square (used for square-selection mode in 3x3 areas)
         const squareState = this.minesweeperGame.getSquareState(row, col);
         
@@ -2187,14 +2304,17 @@ class MenuApp {
         // Perform mine action
         this.handleMineAction();
         
+        // Only continue if game is not over
+        const boardState = this.minesweeperGame.getBoardState();
+        if (boardState.gameOver) {
+            return; // Game over - don't reset selection mode
+        }
+        
         // Update play area center after mining
         this.updatePlayAreaAfterAction(row, col);
         
-        // Autosave game state after board modification (handleMineAction already handles gameOver case)
-        const boardState = this.minesweeperGame.getBoardState();
-        if (!boardState.gameOver) {
-            this.saveGameState();
-        }
+        // Autosave game state after board modification
+        this.saveGameState();
         
         // Reset to appropriate selection mode
         if (this.focusAreaSize === 3 && this.playAreaStartRow !== null) {
@@ -2208,6 +2328,11 @@ class MenuApp {
     }
     
     handleMineActionOnColumn(row, col) {
+        // Don't allow actions if game is over
+        if (this.gameMode === 'game-over') {
+            return;
+        }
+        
         // Check if square is flagged - if so, unflag it first (since we toggled flag on blink start)
         const squareState = this.minesweeperGame.getSquareState(row, col);
         if (squareState.flagged) {
@@ -2221,6 +2346,12 @@ class MenuApp {
             // Game is finished - clear saved state
             localStorage.removeItem('minesweeperGameState');
             this.gameInProgress = false;
+            
+            // Stop auto-scroll
+            if (this.scrollInterval) {
+                clearInterval(this.scrollInterval);
+                this.scrollInterval = null;
+            }
             
             if (result.won) {
                 // Handle win - show win menu

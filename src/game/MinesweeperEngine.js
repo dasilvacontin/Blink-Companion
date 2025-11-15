@@ -161,18 +161,55 @@ export class MinesweeperEngine {
         }
         
         this.flagged[row][col] = !this.flagged[row][col];
+        
+        // Check win condition after flagging (in case all mines are now correctly flagged)
+        if (this.checkWin()) {
+            this.gameOver = true;
+            this.won = true;
+            return { success: true, flagged: this.flagged[row][col], gameOver: true, won: true };
+        }
+        
         return { success: true, flagged: this.flagged[row][col] };
     }
     
     checkWin() {
-        // Win if all non-mine squares are revealed
+        // Win condition:
+        // 1. Every tile is either mined (revealed) or has a flag on it
+        // 2. All flags are on top of mines
+        // 3. All mines have flags on them
+        
+        // First, check that all mines are flagged
+        for (const mine of this.mines) {
+            if (!this.flagged[mine.row][mine.col]) {
+                return false; // At least one mine is not flagged
+            }
+        }
+        
+        // Check that all flags are on mines
         for (let row = 0; row < this.rows; row++) {
             for (let col = 0; col < this.cols; col++) {
-                if (this.board[row][col] !== -1 && !this.revealed[row][col]) {
-                    return false;
+                if (this.flagged[row][col] && this.board[row][col] !== -1) {
+                    return false; // Flag is on a non-mine square
                 }
             }
         }
+        
+        // Check that all non-mine squares are revealed
+        for (let row = 0; row < this.rows; row++) {
+            for (let col = 0; col < this.cols; col++) {
+                if (this.board[row][col] !== -1 && !this.revealed[row][col]) {
+                    return false; // At least one non-mine square is not revealed
+                }
+            }
+        }
+        
+        // Check that all mines are not revealed (they should be flagged instead)
+        for (const mine of this.mines) {
+            if (this.revealed[mine.row][mine.col]) {
+                return false; // At least one mine is revealed (should be flagged instead)
+            }
+        }
+        
         return true;
     }
     
@@ -205,4 +242,5 @@ export class MinesweeperEngine {
         };
     }
 }
+
 
