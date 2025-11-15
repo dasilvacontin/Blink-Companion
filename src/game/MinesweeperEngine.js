@@ -11,7 +11,7 @@ export class MinesweeperEngine {
         const sizeMap = {
             'small': { rows: 7, cols: 7 },
             'medium': { rows: 9, cols: 9 },
-            'large': { rows: 9, cols: 16 }
+            'large': { rows: 16, cols: 9 } // 9 width, 16 tall
         };
         
         const dimensions = sizeMap[boardSize] || { rows: 7, cols: 7 };

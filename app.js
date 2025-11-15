@@ -163,7 +163,7 @@ class MenuApp {
                 { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'small', title: 'Small', subtitle: '7x7 board' },
                 { id: 'medium', title: 'Medium', subtitle: '9x9 board' },
-                { id: 'large', title: 'Large', subtitle: '9x16 board' }
+                { id: 'large', title: 'Large', subtitle: '9x16 board (9 width, 16 tall)' }
             ],
             settings: [
                 { id: 'back', title: 'Back', subtitle: '' },
@@ -483,11 +483,11 @@ class MenuApp {
         } else if (option.id === 'focus-area-size') {
             // Navigate to focus area size adjustment
             this.navigateTo('minesweeper-focus-area-size');
-        } else if (option.id === 'easy' || option.id === 'medium' || option.id === 'hard') {
+        } else if (this.currentMenu === 'minesweeper-difficulty' && (option.id === 'easy' || option.id === 'medium' || option.id === 'hard')) {
             // Store selected difficulty and proceed to board size selection
             this.selectedDifficulty = option.id;
             this.navigateTo('minesweeper-board-size');
-        } else if (option.id === 'small' || option.id === 'medium' || option.id === 'large') {
+        } else if (this.currentMenu === 'minesweeper-board-size' && (option.id === 'small' || option.id === 'medium' || option.id === 'large')) {
             // Store selected board size and start game
             this.selectedBoardSize = option.id;
             this.startMinesweeperGame();
