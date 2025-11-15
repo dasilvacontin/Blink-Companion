@@ -42,6 +42,8 @@ class MenuApp {
         this.selectedRow = null;
         this.selectedCol = null;
         this.actionColumn = null; // Column being acted on during column selection
+        this.actionSquare = null; // Square being acted on during square selection (3x3)
+        this.flagToggled = false; // Track if flag was toggled during current blink
         this.actionMenuHoldTime = 0.5; // 0.5 seconds for action menu
         this.exitGameHoldTime = 2.0; // 2 seconds for exit game
         this.focusAreaSize = 3; // Default focus area size (3x3, 5x5, 7x7, 9x9)
@@ -1685,21 +1687,13 @@ class MenuApp {
                     const highlightedSquare = availableSquares[this.currentIndex];
                     const squareState = this.minesweeperGame.getSquareState(highlightedSquare.row, highlightedSquare.col);
                     
-                    // Only toggle flag if square is not already revealed
-                    if (!squareState.revealed) {
-                        // Toggle flag immediately when blink starts on highlighted square
-                        this.minesweeperGame.toggleFlag(highlightedSquare.row, highlightedSquare.col);
-                        // Autosave game state after board modification
-                        this.saveGameState();
-                        // Re-render immediately to show the flag change
-                        this.renderMinesweeperGame();
-                    }
-                    
                     // Use blink threshold for hold time to mine
                     const holdTime = this.blinkThreshold;
+                    const flagToggleThreshold = 0.5; // Toggle flag at 50% of hold time
                     
                     // Store the square we're acting on
                     this.actionSquare = highlightedSquare;
+                    this.flagToggled = false; // Reset flag toggle state
                     
                     this.isSelecting = true;
                     this.selectionProgress = 0;
@@ -1713,6 +1707,18 @@ class MenuApp {
                         
                         const elapsed = (Date.now() - this.selectionStartTime) / 1000;
                         this.selectionProgress = Math.min(elapsed / holdTime, 1);
+                        
+                        // Toggle flag when we pass 50% threshold (only once)
+                        // Re-check square state in case it changed
+                        const currentSquareState = this.minesweeperGame.getSquareState(highlightedSquare.row, highlightedSquare.col);
+                        if (!this.flagToggled && this.selectionProgress >= flagToggleThreshold && !currentSquareState.revealed) {
+                            this.minesweeperGame.toggleFlag(highlightedSquare.row, highlightedSquare.col);
+                            this.flagToggled = true;
+                            // Autosave game state after board modification
+                            this.saveGameState();
+                            // Re-render immediately to show the flag change
+                            this.renderMinesweeperGame();
+                        }
                         
                         // Update progress fill on highlighted area
                         this.updateHighlightedAreaProgress(this.selectionProgress);
@@ -1744,21 +1750,13 @@ class MenuApp {
                     const highlightedCol = availableCols[this.currentIndex];
                     const squareState = this.minesweeperGame.getSquareState(this.selectedRow, highlightedCol);
                     
-                    // Only toggle flag if square is not already revealed
-                    if (!squareState.revealed) {
-                        // Toggle flag immediately when blink starts on highlighted column
-                        this.minesweeperGame.toggleFlag(this.selectedRow, highlightedCol);
-                        // Autosave game state after board modification
-                        this.saveGameState();
-                        // Re-render immediately to show the flag change
-                        this.renderMinesweeperGame();
-                    }
-                    
                     // Use blink threshold for hold time to mine
                     const holdTime = this.blinkThreshold;
+                    const flagToggleThreshold = 0.5; // Toggle flag at 50% of hold time
                     
                     // Store the column we're acting on
                     this.actionColumn = highlightedCol;
+                    this.flagToggled = false; // Reset flag toggle state
                     
                     this.isSelecting = true;
                     this.selectionProgress = 0;
@@ -1772,6 +1770,18 @@ class MenuApp {
                         
                         const elapsed = (Date.now() - this.selectionStartTime) / 1000;
                         this.selectionProgress = Math.min(elapsed / holdTime, 1);
+                        
+                        // Toggle flag when we pass 50% threshold (only once)
+                        // Re-check square state in case it changed
+                        const currentSquareState = this.minesweeperGame.getSquareState(this.selectedRow, highlightedCol);
+                        if (!this.flagToggled && this.selectionProgress >= flagToggleThreshold && !currentSquareState.revealed) {
+                            this.minesweeperGame.toggleFlag(this.selectedRow, highlightedCol);
+                            this.flagToggled = true;
+                            // Autosave game state after board modification
+                            this.saveGameState();
+                            // Re-render immediately to show the flag change
+                            this.renderMinesweeperGame();
+                        }
                         
                         // Update progress fill on highlighted area
                         this.updateHighlightedAreaProgress(this.selectionProgress);
@@ -2019,18 +2029,27 @@ class MenuApp {
     }
     
     cancelSelection() {
-        // Check if we were acting on a highlighted column during column selection
+        // Check if we were acting on a highlighted square/column and flag was toggled
+        const wasActingOnSquare = this.minesweeperMode && 
+            this.gameMode === 'square-selection' && 
+            this.actionSquare !== null &&
+            this.isSelecting;
+        
         const wasActingOnColumn = this.minesweeperMode && 
             this.gameMode === 'column-selection' && 
             this.selectedRow !== null && 
             this.actionColumn !== null &&
             this.isSelecting;
         
+        const actionSquare = this.actionSquare; // Store before resetting
         const actionCol = this.actionColumn; // Store before resetting
+        const flagWasToggled = this.flagToggled; // Store before resetting
         
         this.isSelecting = false;
         this.selectionProgress = 0;
         this.actionColumn = null;
+        this.actionSquare = null;
+        this.flagToggled = false;
         
         if (this.selectionAnimationFrame) {
             cancelAnimationFrame(this.selectionAnimationFrame);
@@ -2057,12 +2076,26 @@ class MenuApp {
         // Clear highlighted area progress
         this.updateHighlightedAreaProgress(0);
         
-        // If we were acting on a highlighted column and released early (didn't complete mine action),
-        // we already toggled the flag, so just continue column selection (don't update play area)
-        if (wasActingOnColumn && actionCol !== null) {
-            // Reset the cycle tracking since user took an action
+        // If flag was toggled and blink was released early, re-center play area on that square
+        if (flagWasToggled) {
+            if (wasActingOnSquare && actionSquare !== null) {
+                // Re-center play area on the square where flag was toggled
+                this.updatePlayAreaAfterAction(actionSquare.row, actionSquare.col);
+                // Reset to square-selection mode
+                this.gameMode = 'square-selection';
+                this.currentIndex = 0;
+                this.renderMinesweeperGame();
+            } else if (wasActingOnColumn && actionCol !== null) {
+                // Re-center play area on the column where flag was toggled
+                this.updatePlayAreaAfterAction(this.selectedRow, actionCol);
+                // Reset the cycle tracking since user took an action
+                this.columnSelectionStartIndex = this.currentIndex;
+                // Re-render to show the flag change and updated play area
+                this.renderMinesweeperGame();
+            }
+        } else if (wasActingOnColumn && actionCol !== null) {
+            // No flag was toggled, just reset cycle tracking
             this.columnSelectionStartIndex = this.currentIndex;
-            // Re-render to show the flag change
             this.renderMinesweeperGame();
         }
     }
