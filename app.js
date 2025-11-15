@@ -3024,7 +3024,14 @@ class MenuApp {
         const avgRightClosed = this.calculateAverage(this.calibrationData.rightEyeClosed);
         const avgRightOpen = this.calculateAverage(this.calibrationData.rightEyeOpen);
         
-        // Debug: log the averages to console
+        // Debug: log the averages and data collection status
+        console.log('Calibration data collection:', {
+            bothEyesOpen: this.calibrationData.bothEyesOpen.length,
+            leftEyeClosed: this.calibrationData.leftEyeClosed.length,
+            leftEyeOpen: this.calibrationData.leftEyeOpen.length,
+            rightEyeClosed: this.calibrationData.rightEyeClosed.length,
+            rightEyeOpen: this.calibrationData.rightEyeOpen.length
+        });
         console.log('Calibration averages:', {
             bothOpen: avgBothOpen,
             leftClosed: avgLeftClosed,
@@ -3042,15 +3049,31 @@ class MenuApp {
         const rightEyeClosedAvg = avgRightClosed.rightEAR; // User's right eye when closed
         const rightEyeOpenAvg = (avgBothOpen.rightEAR + avgRightOpen.rightEAR) / 2; // User's right eye when open
         
-        // Calculate thresholds: midpoint between closed and open, with a small buffer
-        // Use a more conservative approach: threshold should be closer to closed value
-        const leftEyeRange = leftEyeOpenAvg - leftEyeClosedAvg;
-        const leftEyeThreshold = leftEyeClosedAvg + (leftEyeRange * 0.3); // 30% from closed toward open
-        this.earThresholdLeft = Math.max(0.10, Math.min(0.30, leftEyeThreshold));
+        // Validate that we have sufficient data
+        const hasLeftData = this.calibrationData.bothEyesOpen.length > 0 && 
+                           this.calibrationData.leftEyeClosed.length > 0 &&
+                           this.calibrationData.leftEyeOpen.length > 0;
+        const hasRightData = this.calibrationData.bothEyesOpen.length > 0 && 
+                            this.calibrationData.rightEyeClosed.length > 0 &&
+                            this.calibrationData.rightEyeOpen.length > 0;
         
-        const rightEyeRange = rightEyeOpenAvg - rightEyeClosedAvg;
-        const rightEyeThreshold = rightEyeClosedAvg + (rightEyeRange * 0.3); // 30% from closed toward open
-        this.earThresholdRight = Math.max(0.10, Math.min(0.30, rightEyeThreshold));
+        // Calculate thresholds: 30% from closed toward open
+        // No caps - use the calculated value directly
+        if (hasLeftData) {
+            const leftEyeRange = leftEyeOpenAvg - leftEyeClosedAvg;
+            const leftEyeThreshold = leftEyeClosedAvg + (leftEyeRange * 0.3); // 30% from closed toward open
+            this.earThresholdLeft = leftEyeThreshold; // No caps - use calculated value
+        } else {
+            console.warn('Insufficient left eye calibration data, keeping existing threshold');
+        }
+        
+        if (hasRightData) {
+            const rightEyeRange = rightEyeOpenAvg - rightEyeClosedAvg;
+            const rightEyeThreshold = rightEyeClosedAvg + (rightEyeRange * 0.3); // 30% from closed toward open
+            this.earThresholdRight = rightEyeThreshold; // No caps - use calculated value
+        } else {
+            console.warn('Insufficient right eye calibration data, keeping existing threshold');
+        }
         
         // Debug: log calculated thresholds
         console.log('Calculated thresholds:', {
