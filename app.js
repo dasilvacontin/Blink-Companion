@@ -42,7 +42,6 @@ class MenuApp {
         this.selectedRow = null;
         this.selectedCol = null;
         this.actionColumn = null; // Column being acted on during column selection
-        this.rowSelectionTimeout = null;
         this.actionMenuHoldTime = 0.5; // 0.5 seconds for action menu
         this.exitGameHoldTime = 2.0; // 2 seconds for exit game
         // 5x5 play area (null means full board)
@@ -53,6 +52,7 @@ class MenuApp {
         this.lastActionRow = null; // Row of last action (mine or flag)
         this.lastActionCol = null; // Col of last action (mine or flag)
         this.boardActions = null; // Board actions (Zoom Out, Exit Game)
+        this.columnSelectionStartIndex = null; // Track where column selection started to detect full cycle
         
         // Selection state
         this.isSelecting = false;
@@ -431,9 +431,9 @@ class MenuApp {
                 this.selectedCol = null;
                 this.gameMode = 'column-selection';
                 this.currentIndex = 0;
+                // Track where column selection started to detect full cycle
+                this.columnSelectionStartIndex = 0;
                 this.renderMinesweeperGame();
-                // Start timeout for row selection reset
-                this.startRowSelectionTimeout();
             } else {
                 // Select a board action (Zoom Out or Exit Game)
                 const actionIndex = this.currentIndex - availableRows.length;
@@ -525,10 +525,7 @@ class MenuApp {
         this.playAreaEndCol = null;
         this.lastActionRow = null;
         this.lastActionCol = null;
-        if (this.rowSelectionTimeout) {
-            clearTimeout(this.rowSelectionTimeout);
-            this.rowSelectionTimeout = null;
-        }
+        this.columnSelectionStartIndex = null;
         this.navigateTo('games');
     }
     
@@ -1004,13 +1001,22 @@ class MenuApp {
                     }
                     const availableCols = this.getAvailableColumns(boardState, this.selectedRow);
                     if (availableCols.length > 0) {
-                        // Move to next column, but don't loop - after last column, it will timeout
+                        // Move to next column
                         this.currentIndex++;
                         if (this.currentIndex >= availableCols.length) {
-                            // After last column, loop back to first
+                            // After last column, check if we've completed a full cycle without any action
+                            if (this.columnSelectionStartIndex !== null) {
+                                // We've scrolled through all columns without any action - reset to row selection
+                                this.resetRowSelection();
+                                return;
+                            }
+                            // Loop back to first
                             this.currentIndex = 0;
                         }
                         this.renderMinesweeperGame();
+                    } else {
+                        // No available columns - reset to row selection
+                        this.resetRowSelection();
                     }
                 }
                 } else if (this.gameMode === 'game-over') {
@@ -1036,28 +1042,13 @@ class MenuApp {
         });
     }
     
-    startRowSelectionTimeout() {
-        // Clear existing timeout
-        if (this.rowSelectionTimeout) {
-            clearTimeout(this.rowSelectionTimeout);
-        }
-        
-        // Set timeout for 5 seconds
-        this.rowSelectionTimeout = setTimeout(() => {
-            this.resetRowSelection();
-        }, 5000);
-    }
-    
     resetRowSelection() {
         this.selectedRow = null;
         this.selectedCol = null;
         this.actionColumn = null;
+        this.columnSelectionStartIndex = null;
         this.gameMode = 'row-selection';
         this.currentIndex = 0;
-        if (this.rowSelectionTimeout) {
-            clearTimeout(this.rowSelectionTimeout);
-            this.rowSelectionTimeout = null;
-        }
         this.renderMinesweeperGame();
     }
     
@@ -1291,6 +1282,8 @@ class MenuApp {
         if (wasActingOnColumn && actionCol !== null) {
             // Update play area after flag toggle
             this.updatePlayAreaAfterAction(this.selectedRow, actionCol);
+            // Reset the cycle tracking since user took an action
+            this.columnSelectionStartIndex = this.currentIndex;
             // Re-render to show the flag change
             this.renderMinesweeperGame();
         }
@@ -1324,6 +1317,7 @@ class MenuApp {
             this.updatePlayAreaAfterAction(row, col);
             
             // Re-render board and return to row selection
+            // (resetRowSelection will clear columnSelectionStartIndex)
             this.resetRowSelection();
         }
     }
