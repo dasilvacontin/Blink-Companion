@@ -119,7 +119,7 @@ class MenuApp {
     initializeMenus() {
         this.menus = {
             main: [
-                { id: 'write', title: 'Write', subtitle: 'Write text with predictive assistance' },
+                { id: 'write', title: 'Write', subtitle: 'with predictive assistance' },
                 { id: 'saved-text', title: 'Saved text', subtitle: 'View and manage saved text' },
                 { id: 'games', title: 'Games', subtitle: 'Have fun!' },
                 { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' },
@@ -525,7 +525,45 @@ class MenuApp {
         this.lastActionRow = null;
         this.lastActionCol = null;
         this.columnSelectionStartIndex = null;
-        this.navigateTo('games');
+        this.boardActions = null;
+        
+        // Stop any game auto-scroll
+        if (this.scrollInterval) {
+            clearInterval(this.scrollInterval);
+            this.scrollInterval = null;
+        }
+        
+        // Clear any selection state
+        this.cancelSelection();
+        
+        // Restore menu container structure if it was replaced by game
+        const app = document.getElementById('app');
+        const existingContainer = document.getElementById('menu-container');
+        if (existingContainer && !existingContainer.querySelector('#menu-title')) {
+            // Menu container was replaced by game, restore it
+            const menuContainer = document.createElement('div');
+            menuContainer.id = 'menu-container';
+            const menuTitle = document.createElement('h1');
+            menuTitle.id = 'menu-title';
+            menuTitle.className = 'menu-title';
+            const menuOptions = document.createElement('div');
+            menuOptions.id = 'menu-options';
+            menuOptions.className = 'menu-options';
+            
+            menuContainer.appendChild(menuTitle);
+            menuContainer.appendChild(menuOptions);
+            
+            existingContainer.replaceWith(menuContainer);
+        }
+        
+        // Navigate to games menu
+        this.currentMenu = 'games';
+        this.currentIndex = 0;
+        this.renderMenu();
+        this.resetBlinkState();
+        
+        // Start auto-scroll for the menu
+        this.startAutoScroll();
     }
     
     decreaseSetting() {
@@ -609,6 +647,10 @@ class MenuApp {
         
         if (this.menuStack.length > 0) {
             this.currentMenu = this.menuStack.pop();
+            this.renderMenu();
+        } else {
+            // If stack is empty, go to main menu
+            this.currentMenu = 'main';
             this.renderMenu();
         }
         this.resetBlinkState();
