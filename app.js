@@ -42,8 +42,6 @@ class MenuApp {
         this.earRight = 0;
         this.leftEyeClosed = false;
         this.rightEyeClosed = false;
-        this.leftEyeCounter = 0;
-        this.rightEyeCounter = 0;
         this.eyesWereOpen = true; // Track if eyes were open before starting selection
         
         // MediaPipe
@@ -376,8 +374,6 @@ class MenuApp {
         this.winkingEye = null;
         this.leftEyeClosed = false;
         this.rightEyeClosed = false;
-        this.leftEyeCounter = 0;
-        this.rightEyeCounter = 0;
         this.eyesWereOpen = false; // Require eyes to be open before next selection can start
     }
     
@@ -526,66 +522,48 @@ class MenuApp {
     
     detectSingleEyeBlink() {
         const leftClosed = this.earLeft < EAR_THRESHOLD;
-        const rightOpen = this.earRight >= EAR_THRESHOLD;
         const rightClosed = this.earRight < EAR_THRESHOLD;
         const leftOpen = this.earLeft >= EAR_THRESHOLD;
+        const rightOpen = this.earRight >= EAR_THRESHOLD;
         const bothOpen = leftOpen && rightOpen;
-        const bothClosed = leftClosed && rightClosed;
+        const anyEyeClosed = leftClosed || rightClosed;
         
         // Update eyesWereOpen flag - track when both eyes are open
         if (bothOpen) {
             this.eyesWereOpen = true;
         }
         
-        // Left eye wink
+        // Track eye states for reference
+        this.leftEyeClosed = leftClosed;
+        this.rightEyeClosed = rightClosed;
+        
+        // Update blinking state: true if any eye is closed (single or both)
+        const wasBlinking = this.isWinking;
+        this.isWinking = anyEyeClosed;
+        
+        // Determine which eye(s) are closed for tracking
         if (leftClosed && rightOpen) {
-            this.leftEyeCounter++;
-            this.leftEyeClosed = true;
-            if (this.leftEyeCounter > 6) {
-                this.leftEyeCounter = 2;
-            }
-        } else {
-            this.leftEyeCounter = 0;
-            this.leftEyeClosed = false;
-        }
-        
-        // Right eye wink
-        if (rightClosed && leftOpen) {
-            this.rightEyeCounter++;
-            this.rightEyeClosed = true;
-            if (this.rightEyeCounter > 6) {
-                this.rightEyeCounter = 2;
-            }
-        } else {
-            this.rightEyeCounter = 0;
-            this.rightEyeClosed = false;
-        }
-        
-        // Update winking state
-        if (this.leftEyeClosed && rightOpen) {
-            this.isWinking = true;
             this.winkingEye = 'left';
-        } else if (this.rightEyeClosed && leftOpen) {
-            this.isWinking = true;
+        } else if (rightClosed && leftOpen) {
             this.winkingEye = 'right';
+        } else if (leftClosed && rightClosed) {
+            this.winkingEye = 'both';
         } else {
-            this.isWinking = false;
             this.winkingEye = null;
         }
         
-        // Check for double-eye blink (both closed) - cancel selection
-        if (bothClosed) {
-            this.cancelSelection();
-            this.eyesWereOpen = false; // Require eyes to open again
-            return;
-        }
-        
-        // Handle selection based on wink state
+        // Handle selection based on blink state
+        // Blink starts: any eye closes (and eyes were open before)
+        // Blink continues: as long as any eye is closed
+        // Blink ends: when both eyes are open
         if (this.isWinking) {
-            if (!this.isSelecting && this.eyesWereOpen) {
+            // Start selection if we just started blinking and eyes were open
+            if (!wasBlinking && this.eyesWereOpen && !this.isSelecting) {
                 this.startSelection();
             }
+            // Continue selection if already selecting
         } else {
+            // Both eyes are open - end the blink and cancel selection
             if (this.isSelecting) {
                 this.cancelSelection();
             }
