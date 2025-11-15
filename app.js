@@ -743,12 +743,7 @@ class MenuApp {
             
             // Check if we're highlighting a row or a board action
             if (this.currentIndex < availableRows.length) {
-                // Highlighting a row - clear board action highlights
-                const actionEls = document.querySelectorAll('#board-actions .menu-option');
-                actionEls.forEach((el) => {
-                    el.classList.remove('highlighted');
-                });
-                
+                // Highlighting a row
                 const highlightedRowIndex = availableRows[this.currentIndex];
                 highlightedStartRow = highlightedRowIndex;
                 highlightedEndRow = highlightedRowIndex;
@@ -761,17 +756,6 @@ class MenuApp {
                 highlightedEndRow = null;
                 highlightedStartCol = null;
                 highlightedEndCol = null;
-                
-                // Update highlight on board actions
-                const actionIndex = this.currentIndex - availableRows.length;
-                const actionEls = document.querySelectorAll('#board-actions .menu-option');
-                actionEls.forEach((el, idx) => {
-                    if (idx === actionIndex) {
-                        el.classList.add('highlighted');
-                    } else {
-                        el.classList.remove('highlighted');
-                    }
-                });
             }
         } else if (this.gameMode === 'column-selection') {
             // Selected area: the part of selected row within the play area
@@ -823,6 +807,8 @@ class MenuApp {
         } else {
             // Add Zoom Out and Exit Game options below the board
             this.renderBoardActions(container, boardState);
+            
+            // Update highlights will be done after DOM is updated
         }
         
         // Replace existing menu container
@@ -835,6 +821,33 @@ class MenuApp {
             }
         }
         
+        // Update highlights on board actions after DOM is updated
+        requestAnimationFrame(() => {
+            if (this.gameMode === 'row-selection') {
+                const availableRows = this.getAvailableRows(boardState);
+                if (this.currentIndex >= availableRows.length) {
+                    // Highlighting a board action (Zoom Out or Exit Game)
+                    const actionIndex = this.currentIndex - availableRows.length;
+                    // Find board actions in the DOM
+                    const actionEls = document.querySelectorAll('#board-actions .menu-option');
+                    // Highlight the action at the actionIndex
+                    actionEls.forEach((el, idx) => {
+                        if (idx === actionIndex) {
+                            el.classList.add('highlighted');
+                        } else {
+                            el.classList.remove('highlighted');
+                        }
+                    });
+                } else {
+                    // Highlighting a row - clear board action highlights
+                    const actionEls = document.querySelectorAll('#board-actions .menu-option');
+                    actionEls.forEach((el) => {
+                        el.classList.remove('highlighted');
+                    });
+                }
+            }
+        });
+        
         // Start auto-scroll for board-based selection
         this.startGameAutoScroll();
     }
@@ -846,23 +859,26 @@ class MenuApp {
         actionsContainer.className = 'minesweeper-board-actions';
         actionsContainer.id = 'board-actions';
         
-        // Zoom Out is only available when 5x5 play area is active
-        const canZoomOut = this.playAreaStartRow !== null;
+        // Show Zoom Out when 5x5 play area is active, Exit Game when full board
+        const hasPlayArea = this.playAreaStartRow !== null;
         
-        // Create action options
+        // Create action options based on play area state
         const actionOptions = [];
-        if (canZoomOut) {
+        if (hasPlayArea) {
+            // 5x5 selection area active: show only Zoom Out
             actionOptions.push({
                 id: 'zoom-out',
                 title: 'Zoom Out',
                 isZoomOut: true
             });
+        } else {
+            // Full board selection: show only Exit Game
+            actionOptions.push({
+                id: 'exit-game',
+                title: 'Exit Game',
+                isExitGame: true
+            });
         }
-        actionOptions.push({
-            id: 'exit-game',
-            title: 'Exit Game',
-            isExitGame: true
-        });
         
         // Store board actions for selection logic
         this.boardActions = actionOptions;
@@ -883,6 +899,7 @@ class MenuApp {
             });
             optionEl.dataset.index = index;
             optionEl.dataset.actionId = option.id;
+            
             optionsContainer.appendChild(optionEl);
         });
         
@@ -995,6 +1012,7 @@ class MenuApp {
                             // After last board action, loop back to first row
                             this.currentIndex = 0;
                         }
+                        // Re-render to update highlights
                         this.renderMinesweeperGame();
                     }
                 } else if (this.gameMode === 'column-selection') {
@@ -1165,7 +1183,61 @@ class MenuApp {
                 }
             }
             
-            // Board-based selection - no progress indicator needed
+            // Check if we're selecting a board action (Zoom Out or Exit Game)
+            const boardState = this.minesweeperGame.getBoardState();
+            const availableRows = this.getAvailableRows(boardState);
+            const isSelectingBoardAction = this.gameMode === 'row-selection' && 
+                this.currentIndex >= availableRows.length && 
+                this.boardActions;
+            
+            if (isSelectingBoardAction) {
+                // Selecting a board action - use menu option with progress indicator
+                const actionIndex = this.currentIndex - availableRows.length;
+                const actionEls = document.querySelectorAll('#board-actions .menu-option');
+                // Find the action element at the actionIndex
+                let actionEl = null;
+                if (actionIndex < actionEls.length) {
+                    actionEl = actionEls[actionIndex];
+                }
+                
+                if (actionEl) {
+                    const progressFill = actionEl.querySelector('.progress-fill');
+                    
+                    if (!progressFill) return;
+                    
+                    this.isSelecting = true;
+                    this.selectionProgress = 0;
+                    this.selectionStartTime = Date.now();
+                    
+                    const animate = () => {
+                        if (!this.isSelecting) {
+                            this.cancelSelection();
+                            return;
+                        }
+                        
+                        const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                        this.selectionProgress = Math.min(elapsed / holdTime, 1);
+                        
+                        if (progressFill) {
+                            progressFill.style.width = (this.selectionProgress * 100) + '%';
+                        }
+                        
+                        if (this.selectionProgress >= 1) {
+                            // Selection complete
+                            this.cancelSelection();
+                            this.handleGameSelection();
+                            this.resetBlinkState();
+                        } else {
+                            this.selectionAnimationFrame = requestAnimationFrame(animate);
+                        }
+                    };
+                    
+                    this.selectionAnimationFrame = requestAnimationFrame(animate);
+                    return;
+                }
+            }
+            
+            // Board-based selection (rows/columns) - no progress indicator needed
             this.isSelecting = true;
             this.selectionProgress = 0;
             this.selectionStartTime = Date.now();
@@ -1290,6 +1362,15 @@ class MenuApp {
         
         const optionEls = document.querySelectorAll('.menu-option');
         optionEls.forEach(el => {
+            const progressFill = el.querySelector('.progress-fill');
+            if (progressFill) {
+                progressFill.style.width = '0%';
+            }
+        });
+        
+        // Also clear progress on board actions
+        const boardActionEls = document.querySelectorAll('#board-actions .menu-option');
+        boardActionEls.forEach(el => {
             const progressFill = el.querySelector('.progress-fill');
             if (progressFill) {
                 progressFill.style.width = '0%';
