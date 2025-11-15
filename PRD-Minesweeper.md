@@ -104,7 +104,7 @@ A Minesweeper game that:
 #### FR-2: Board Size Selection
 - After selecting difficulty, the user shall select a board size
 - Board size options shall include:
-  - **Small**: 9x9 (or similar)
+  - **Small**: 10x10 (or similar)
   - **Medium**: 20x20 (standard)
   - **Large**: 30x30 (or similar)
 - Board size selection shall use the standard menu system with auto-scrolling cursor
@@ -323,7 +323,7 @@ A Minesweeper game that:
 - The board shall be represented as a 2D array
 - Each cell shall track:
   - Whether it contains a mine
-  - Whether it is revealed
+  - Whether it is mined
   - Whether it is flagged
   - Adjacent mine count
 

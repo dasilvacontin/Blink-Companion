@@ -30,6 +30,10 @@ class MenuApp {
         this.scrollSpeed = DEFAULT_SCROLL_SPEED;
         this.blinkThreshold = DEFAULT_BLINK_THRESHOLD;
         
+        // Minesweeper setup state
+        this.selectedDifficulty = null;
+        this.selectedBoardSize = null;
+        
         // Selection state
         this.isSelecting = false;
         this.selectionProgress = 0;
@@ -97,6 +101,7 @@ class MenuApp {
             main: [
                 { id: 'write', title: 'Write', subtitle: 'Write text with predictive assistance' },
                 { id: 'saved-text', title: 'Saved text', subtitle: 'View and manage saved text' },
+                { id: 'games', title: 'Games', subtitle: 'Have fun!' },
                 { id: 'settings', title: 'Settings', subtitle: 'Customize the app to your preferences' },
                 { id: 'lock', title: 'Rest', subtitle: 'Lock the app to rest' }
             ],
@@ -104,6 +109,25 @@ class MenuApp {
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
             ],
             'saved-text': [
+                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+            ],
+            'games': [
+                { id: 'minesweeper', title: 'Minesweeper', subtitle: 'Classic minesweeper game' },
+                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+            ],
+            'minesweeper': [
+                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+            ],
+            'minesweeper-difficulty': [
+                { id: 'easy', title: 'Easy', subtitle: 'Fewer mines, larger safe areas' },
+                { id: 'medium', title: 'Medium', subtitle: 'Standard mine density' },
+                { id: 'hard', title: 'Hard', subtitle: 'More mines, tighter spacing' },
+                { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
+            ],
+            'minesweeper-board-size': [
+                { id: 'small', title: 'Small', subtitle: '10x10 board' },
+                { id: 'medium', title: 'Medium', subtitle: '20x20 board' },
+                { id: 'large', title: 'Large', subtitle: '30x30 board' },
                 { id: 'back', title: 'Back', subtitle: 'Return to previous menu' }
             ],
             settings: [
@@ -144,11 +168,17 @@ class MenuApp {
             titleText = 'Settings / Scroll Speed';
         } else if (this.currentMenu === 'blink-threshold') {
             titleText = 'Settings / Blink threshold';
+        } else if (this.currentMenu === 'minesweeper-difficulty') {
+            titleText = 'Select Difficulty';
+        } else if (this.currentMenu === 'minesweeper-board-size') {
+            titleText = 'Select Board Size';
         } else {
             const titleMap = {
                 'main': 'Main Menu',
                 'write': 'Write',
                 'saved-text': 'Saved text',
+                'games': 'Games',
+                'minesweeper': 'Minesweeper',
                 'settings': 'Settings',
                 'lock': 'Rest'
             };
@@ -339,6 +369,23 @@ class MenuApp {
             this.isLocked = true;
             this.currentMenu = 'lock';
             this.renderMenu();
+        } else if (option.id === 'minesweeper') {
+            // Start Minesweeper setup flow
+            this.navigateTo('minesweeper-difficulty');
+        } else if (option.id === 'easy' || option.id === 'medium' || option.id === 'hard') {
+            // Store selected difficulty and proceed to board size selection
+            this.selectedDifficulty = option.id;
+            this.navigateTo('minesweeper-board-size');
+        } else if (option.id === 'small' || option.id === 'medium' || option.id === 'large') {
+            // Store selected board size and start game (Phase 2+)
+            this.selectedBoardSize = option.id;
+            // TODO: Phase 2+ - Initialize and start the game
+            console.log('Starting Minesweeper with:', {
+                difficulty: this.selectedDifficulty,
+                boardSize: this.selectedBoardSize
+            });
+            // For now, just navigate back to games menu
+            this.navigateTo('games');
         } else {
             this.navigateTo(option.id);
         }
