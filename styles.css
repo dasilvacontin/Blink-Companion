@@ -39,6 +39,8 @@ body {
 #app {
     width: 100%;
     max-width: 600px;
+    position: relative;
+    z-index: 2;
 }
 
 #menu-container {
@@ -120,11 +122,11 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.3);
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 1000;
+    z-index: 1;
 }
 
 .camera-overlay.hidden {
@@ -132,11 +134,13 @@ body {
 }
 
 #video {
-    width: 1px;
-    height: 1px;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     position: absolute;
-    opacity: 0;
-    pointer-events: none;
+    top: 0;
+    left: 0;
+    transform: scaleX(-1);
 }
 
 #canvas {
@@ -212,6 +216,8 @@ body {
 .lock-screen {
     width: 100%;
     display: flex;
+    position: relative;
+    z-index: 3;
     flex-direction: column;
     align-items: center;
 }

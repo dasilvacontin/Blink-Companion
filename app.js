@@ -26,7 +26,7 @@ const DEFAULT_BLINK_THRESHOLD = 0.7; // seconds
 
 class MenuApp {
     constructor() {
-        this.currentMenu = 'main';
+        this.currentMenu = 'lock';
         this.menuStack = [];
         this.options = [];
         this.currentIndex = 0;
@@ -80,7 +80,7 @@ class MenuApp {
         this.sosStep = 0; // Current step in pattern (0-8)
         this.sosBlinkStartTime = null; // When current blink started
         this.sosBlinkDuration = 0; // Duration of current blink
-        this.isLocked = false; // Whether app is locked
+        this.isLocked = true; // Whether app is locked - start locked
         this.lockScreenAnimationFrame = null; // Animation frame for lock screen progress
         this.sosFullFillTime = null; // When the square reached 100% fill
         this.sosInactivityTimeout = null; // Timeout for resetting pattern after 5 seconds without success
@@ -238,6 +238,12 @@ class MenuApp {
         
         // Special handling for lock screen - use LockScreen component
         if (this.currentMenu === 'lock' || this.isLocked) {
+            // Show camera overlay when locked
+            const cameraOverlay = document.getElementById('camera-overlay');
+            if (cameraOverlay) {
+                cameraOverlay.classList.remove('hidden');
+            }
+            
             // Check if lock screen already exists
             const existingLockScreen = document.querySelector('.lock-screen');
             if (!existingLockScreen) {
@@ -2523,6 +2529,12 @@ class MenuApp {
         this.sosFullFillTime = null;
         this.sosRequireEyesOpen = false; // Reset the flag
         this.clearFailureTimeout();
+        
+        // Hide camera overlay when unlocked
+        const cameraOverlay = document.getElementById('camera-overlay');
+        if (cameraOverlay) {
+            cameraOverlay.classList.add('hidden');
+        }
         
         // Stop lock screen animation
         if (this.lockScreenAnimationFrame) {
