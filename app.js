@@ -2930,7 +2930,6 @@ class MenuApp {
         menuContainerEl.innerHTML = '';
         menuContainerEl.className = 'calibration-screen';
         menuContainerEl.style.cssText = 'width: 100%; max-width: 600px;';
-        
 
         const stepTitle = document.createElement('h2');
         stepTitle.className = 'calibration-step-title';
@@ -2965,12 +2964,6 @@ class MenuApp {
             
             menuContainerEl.appendChild(chartsContainer);
         }
-        
-        const instruction = document.createElement('p');
-        instruction.className = 'calibration-instruction';
-        instruction.textContent = 'Hold this position for 5 seconds...';
-        instruction.style.cssText = 'text-align: center; margin: 20px 0; font-size: 1.1rem;';
-        menuContainerEl.appendChild(instruction);
         
         this.startCalibrationStep();
     }
