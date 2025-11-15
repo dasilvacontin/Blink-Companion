@@ -2,6 +2,7 @@
 import { createMenuContainer } from './src/components/MenuContainer.js';
 import { createSettingsDetail } from './src/components/SettingsDetail.js';
 import { createMenuTitle } from './src/components/MenuTitle.js';
+import { createLockScreen } from './src/components/LockScreen.js';
 
 // Eye landmark indices for MediaPipe Face Mesh
 const LEFT_EYE_POINTS = {
@@ -43,6 +44,15 @@ class MenuApp {
         this.leftEyeClosed = false;
         this.rightEyeClosed = false;
         this.eyesWereOpen = true; // Track if eyes were open before starting selection
+        
+        // SOS Pattern state (for lock screen)
+        this.sosPattern = [0.2, 0.2, 0.2, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2]; // short, short, short, long, long, long, short, short, short
+        this.sosStep = 0; // Current step in pattern (0-8)
+        this.sosBlinkStartTime = null; // When current blink started
+        this.sosBlinkDuration = 0; // Duration of current blink
+        this.isLocked = false; // Whether app is locked
+        this.lockScreenAnimationFrame = null; // Animation frame for lock screen progress
+        this.sosFullFillTime = null; // When the square reached 100% fill
         
         // MediaPipe
         this.faceMesh = null;
@@ -139,6 +149,41 @@ class MenuApp {
                 'lock': 'Lock'
             };
             titleText = titleMap[this.currentMenu] || 'Menu';
+        }
+        
+        // Special handling for lock screen - use LockScreen component
+        if (this.currentMenu === 'lock' || this.isLocked) {
+            // Check if lock screen already exists
+            const existingLockScreen = document.querySelector('.lock-screen');
+            if (!existingLockScreen) {
+                // Clear menu container and show lock screen
+                const app = document.getElementById('app');
+                const menuContainerEl = document.getElementById('menu-container');
+                if (menuContainerEl) {
+                    menuContainerEl.innerHTML = '';
+                    const lockScreen = createLockScreen({ patternProgress: [] });
+                    lockScreen.id = 'menu-container';
+                    menuContainerEl.replaceWith(lockScreen);
+                }
+            }
+            
+            // Reset SOS pattern state if just entering lock screen
+            if (this.sosStep === 0 && this.sosBlinkStartTime === null && this.sosFullFillTime === null) {
+                this.resetSOSPattern();
+                // Highlight the first square
+                this.updateLockScreenProgress(0, 0);
+            }
+            
+            // Stop auto-scroll when on lock screen
+            if (this.scrollInterval) {
+                clearInterval(this.scrollInterval);
+                this.scrollInterval = null;
+            }
+            
+            // Start animation loop for lock screen progress
+            this.startLockScreenAnimation();
+            
+            return;
         }
         
         // Special handling for settings detail pages - use SettingsDetail component
@@ -287,6 +332,11 @@ class MenuApp {
         } else if (option.id === 'value') {
             // Value display is not selectable, skip to next
             return;
+        } else if (option.id === 'lock') {
+            // Lock the app
+            this.isLocked = true;
+            this.currentMenu = 'lock';
+            this.renderMenu();
         } else {
             this.navigateTo(option.id);
         }
@@ -528,6 +578,12 @@ class MenuApp {
         const bothOpen = leftOpen && rightOpen;
         const anyEyeClosed = leftClosed || rightClosed;
         
+        // Handle SOS pattern detection for lock screen
+        if (this.currentMenu === 'lock' || this.isLocked) {
+            this.handleSOSPattern(anyEyeClosed, bothOpen);
+            return;
+        }
+        
         // Update eyesWereOpen flag - track when both eyes are open
         if (bothOpen) {
             this.eyesWereOpen = true;
@@ -568,6 +624,172 @@ class MenuApp {
                 this.cancelSelection();
             }
         }
+    }
+    
+    handleSOSPattern(anyEyeClosed, bothOpen) {
+        const now = Date.now();
+        const expectedDuration = this.sosPattern[this.sosStep];
+        const OVERFILL_THRESHOLD = 0.5; // 0.5 seconds after full fill is a mistake
+        
+        if (anyEyeClosed) {
+            // Blink started or continuing
+            if (this.sosBlinkStartTime === null) {
+                // Just started blinking
+                this.sosBlinkStartTime = now;
+                this.sosFullFillTime = null;
+                this.updateLockScreenProgress(this.sosStep, 0);
+            } else {
+                // Check if we've held too long after full fill
+                if (this.sosFullFillTime !== null) {
+                    const overfillDuration = (now - this.sosFullFillTime) / 1000;
+                    if (overfillDuration > OVERFILL_THRESHOLD) {
+                        // Held too long after full fill - reset pattern
+                        this.resetSOSPattern();
+                        return;
+                    }
+                }
+            }
+            // Progress will be updated by animation loop
+        } else if (bothOpen && this.sosBlinkStartTime !== null) {
+            // Blink ended
+            const blinkDuration = (now - this.sosBlinkStartTime) / 1000;
+            
+            // Check if square was fully filled (reached expected duration)
+            if (blinkDuration >= expectedDuration) {
+                // Square was fully filled - accept the blink
+                this.updateLockScreenProgress(this.sosStep, 1);
+                this.sosStep++;
+                this.sosBlinkStartTime = null;
+                this.sosFullFillTime = null;
+                
+                // Check if pattern is complete
+                if (this.sosStep >= this.sosPattern.length) {
+                    // Pattern complete - unlock
+                    this.unlock();
+                } else {
+                    // Reset progress for next step and highlight it
+                    this.updateLockScreenProgress(this.sosStep, 0);
+                }
+            } else {
+                // Released before square was fully filled - reset pattern
+                this.resetSOSPattern();
+            }
+        }
+    }
+    
+    startLockScreenAnimation() {
+        if (this.lockScreenAnimationFrame) {
+            cancelAnimationFrame(this.lockScreenAnimationFrame);
+        }
+        
+        const animate = () => {
+            if (this.currentMenu !== 'lock' && !this.isLocked) {
+                // No longer on lock screen, stop animation
+                if (this.lockScreenAnimationFrame) {
+                    cancelAnimationFrame(this.lockScreenAnimationFrame);
+                    this.lockScreenAnimationFrame = null;
+                }
+                return;
+            }
+            
+            if (this.sosBlinkStartTime !== null && this.sosStep < this.sosPattern.length) {
+                // Update progress for current blink
+                const now = Date.now();
+                const elapsed = (now - this.sosBlinkStartTime) / 1000;
+                const expectedDuration = this.sosPattern[this.sosStep];
+                const progress = Math.min(elapsed / expectedDuration, 1);
+                this.updateLockScreenProgress(this.sosStep, progress);
+                
+                // Track when square reaches 100% fill
+                if (progress >= 1 && this.sosFullFillTime === null) {
+                    this.sosFullFillTime = now;
+                }
+            }
+            
+            this.lockScreenAnimationFrame = requestAnimationFrame(animate);
+        };
+        
+        animate();
+    }
+    
+    updateLockScreenProgress(step, progress) {
+        const lockScreen = document.querySelector('.lock-screen');
+        if (!lockScreen) return;
+        
+        const squares = lockScreen.querySelectorAll('.lock-square');
+        if (squares[step]) {
+            const progressFill = squares[step].querySelector('.progress-fill');
+            if (progressFill) {
+                progressFill.style.width = `${progress * 100}%`;
+            }
+        }
+        
+        // Highlight the current/next square to complete
+        squares.forEach((sq, idx) => {
+            if (idx === this.sosStep) {
+                sq.classList.add('highlighted');
+            } else {
+                sq.classList.remove('highlighted');
+            }
+        });
+    }
+    
+    resetSOSPattern() {
+        this.sosStep = 0;
+        this.sosBlinkStartTime = null;
+        this.sosBlinkDuration = 0;
+        this.sosFullFillTime = null;
+        
+        // Clear all progress fills
+        const lockScreen = document.querySelector('.lock-screen');
+        if (lockScreen) {
+            const squares = lockScreen.querySelectorAll('.lock-square');
+            squares.forEach(sq => {
+                const progressFill = sq.querySelector('.progress-fill');
+                if (progressFill) {
+                    progressFill.style.width = '0%';
+                }
+                sq.classList.remove('highlighted');
+            });
+        }
+    }
+    
+    unlock() {
+        this.isLocked = false;
+        this.sosStep = 0;
+        this.sosBlinkStartTime = null;
+        this.sosBlinkDuration = 0;
+        this.sosFullFillTime = null;
+        
+        // Stop lock screen animation
+        if (this.lockScreenAnimationFrame) {
+            cancelAnimationFrame(this.lockScreenAnimationFrame);
+            this.lockScreenAnimationFrame = null;
+        }
+        
+        // Restore menu container structure if it was replaced
+        const app = document.getElementById('app');
+        const lockScreen = document.querySelector('.lock-screen');
+        if (lockScreen) {
+            // Replace lock screen with proper menu container structure
+            const menuContainer = document.createElement('div');
+            menuContainer.id = 'menu-container';
+            const menuTitle = document.createElement('h1');
+            menuTitle.id = 'menu-title';
+            menuTitle.className = 'menu-title';
+            const menuOptions = document.createElement('div');
+            menuOptions.id = 'menu-options';
+            menuOptions.className = 'menu-options';
+            menuContainer.appendChild(menuTitle);
+            menuContainer.appendChild(menuOptions);
+            lockScreen.replaceWith(menuContainer);
+        }
+        
+        // Navigate back to main menu
+        this.currentMenu = 'main';
+        this.menuStack = [];
+        this.renderMenu();
+        this.startAutoScroll();
     }
     
     onFaceMeshResults(results) {
