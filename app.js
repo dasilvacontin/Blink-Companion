@@ -80,6 +80,7 @@ class MenuApp {
         this.blinkDebounceSeconds = 0.2; // UI setting in seconds; mirrored to BLINK_DEBOUNCE_TIME
         this.firstItemWaitSeconds = 0.5; // Extra dwell time on first selectable item after actions
         this.pendingFirstItemWait = false; // Apply first-item wait only once after an action/navigation
+        this.gameFirstWaitUntil = null; // Timestamp to hold game auto-scroll on first item
         
         // SOS Pattern state (for lock screen)
         this.sosPattern = [0.2, 0.2, 0.2, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2]; // short, short, short, long, long, long, short, short, short
@@ -952,7 +953,11 @@ class MenuApp {
                 this.currentIndex = 0;
                 // Track where column selection started to detect full cycle
                 this.columnSelectionStartIndex = 0;
-                this.renderMinesweeperGame();
+                        this.renderMinesweeperGame();
+                        // Apply first-item wait on entering column-selection
+                        this.pendingFirstItemWait = true;
+                        this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+                        this.startGameAutoScroll();
             } else {
                 // Select a board action (Zoom Out or Exit Game)
                 const actionIndex = this.currentIndex - availableRows.length;
@@ -967,7 +972,11 @@ class MenuApp {
                         // Switch to row-selection mode when zoomed out (always use row-selection for full board)
                         this.gameMode = 'row-selection';
                         this.currentIndex = 0;
-                        this.renderMinesweeperGame();
+                                this.renderMinesweeperGame();
+                                // Apply first-item wait after zoom-out
+                                this.pendingFirstItemWait = true;
+                                this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+                                this.startGameAutoScroll();
                     } else if (action.id === 'exit-game') {
                         // Exit game
                         this.exitMinesweeperGame();
@@ -996,7 +1005,11 @@ class MenuApp {
                         // Switch to row-selection mode when zoomed out (always use row-selection for full board)
                         this.gameMode = 'row-selection';
                         this.currentIndex = 0;
-                        this.renderMinesweeperGame();
+                                this.renderMinesweeperGame();
+                                // Apply first-item wait after zoom-out
+                                this.pendingFirstItemWait = true;
+                                this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+                                this.startGameAutoScroll();
                     } else if (action.id === 'exit-game') {
                         // Exit game
                         this.exitMinesweeperGame();
@@ -1512,6 +1525,10 @@ class MenuApp {
         
         // Render game board
         this.renderMinesweeperGame();
+        // Apply first-item wait when returning to selection and restart auto-scroll
+        this.pendingFirstItemWait = true;
+        this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+        this.startGameAutoScroll();
     }
     
     saveGameState() {
@@ -2006,6 +2023,21 @@ class MenuApp {
                     }
                     // For board-based selection, just update the index and re-render
                     const boardState = this.minesweeperGame.getBoardState();
+                    
+                    // Apply one-time first-item wait after actions/navigation within game
+                    if (this.currentIndex === 0 && this.pendingFirstItemWait) {
+                        if (this.gameFirstWaitUntil === null) {
+                            this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+                        }
+                        if (Date.now() < this.gameFirstWaitUntil) {
+                            // Still waiting; hold on first item
+                            return;
+                        } else {
+                            // Done waiting; clear flags and continue
+                            this.pendingFirstItemWait = false;
+                            this.gameFirstWaitUntil = null;
+                        }
+                    }
                 if (this.gameMode === 'square-selection') {
                     // For 3x3 areas: scroll through squares
                     const availableSquares = this.getAvailableSquares(boardState);
@@ -2761,6 +2793,10 @@ class MenuApp {
                 this.gameMode = 'square-selection';
                 this.currentIndex = 0;
                 this.renderMinesweeperGame();
+                // Apply first-item wait when returning to 3x3 selection after flag toggle
+                this.pendingFirstItemWait = true;
+                this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+                this.startGameAutoScroll();
             } else if (wasActingOnColumn && actionCol !== null) {
                 // Re-center play area on the column where flag was toggled
                 this.updatePlayAreaAfterAction(this.selectedRow, actionCol);
@@ -2768,6 +2804,10 @@ class MenuApp {
                 this.columnSelectionStartIndex = this.currentIndex;
                 // Re-render to show the flag change and updated play area
                 this.renderMinesweeperGame();
+                // Apply first-item wait when returning to column/row selection after flag toggle
+                this.pendingFirstItemWait = true;
+                this.gameFirstWaitUntil = Date.now() + this.firstItemWaitSeconds * 1000;
+                this.startGameAutoScroll();
             }
         } else if (wasActingOnColumn && actionCol !== null) {
             // No flag was toggled, just reset cycle tracking
