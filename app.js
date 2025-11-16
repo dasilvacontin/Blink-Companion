@@ -105,6 +105,11 @@ class MenuApp {
         
         // Writing tool state
         this.writeActionOccurred = false; // Track if a write action modified text during current blink/action
+        this.editingNoteId = null; // If set, save overwrites existing note
+        this.currentNoteId = null; // Note being viewed
+        this.notesPage = 1;
+        this.notesPerPage = 3;
+        this.notes = this.loadNotes();
         
         // Check if we should skip the lock screen (for development)
         const shouldSkipLockscreen = this.shouldSkipLockscreen();
@@ -218,6 +223,7 @@ class MenuApp {
         const savedEarThreshold = localStorage.getItem('earThreshold'); // Legacy support
         const savedBlinkDebounceSeconds = localStorage.getItem('blinkDebounceSeconds');
         const savedFirstItemWaitSeconds = localStorage.getItem('firstItemWaitSeconds');
+        const savedNotes = localStorage.getItem('notes');
         
         if (savedScrollSpeed) {
             this.scrollSpeed = parseFloat(savedScrollSpeed);
@@ -253,6 +259,11 @@ class MenuApp {
             const v = parseFloat(savedFirstItemWaitSeconds);
             if (!isNaN(v)) this.firstItemWaitSeconds = v;
         }
+        if (savedNotes) {
+            try {
+                this.notes = JSON.parse(savedNotes);
+            } catch {}
+        }
     }
     
     saveSettings() {
@@ -265,6 +276,53 @@ class MenuApp {
         localStorage.setItem('firstItemWaitSeconds', this.firstItemWaitSeconds.toString());
     }
     
+    loadNotes() {
+        try {
+            const raw = localStorage.getItem('notes');
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    
+    saveNotes() {
+        localStorage.setItem('notes', JSON.stringify(this.notes));
+    }
+    
+    createNote(text) {
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+        const note = { id, text, createdAt: Date.now() };
+        this.notes.unshift(note); // most recent first
+        this.saveNotes();
+        return note;
+    }
+    
+    updateNote(id, text) {
+        const idx = this.notes.findIndex(n => n.id === id);
+        if (idx >= 0) {
+            this.notes[idx].text = text;
+            // bump recency
+            const note = this.notes.splice(idx, 1)[0];
+            this.notes.unshift(note);
+            this.saveNotes();
+            return note;
+        }
+        return null;
+    }
+    
+    deleteNote(id) {
+        this.notes = this.notes.filter(n => n.id !== id);
+        this.saveNotes();
+    }
+    
+    getNotePreview(text) {
+        if (!text) return '(empty)';
+        const firstLine = text.split('\n')[0];
+        return firstLine.length > 40 ? firstLine.slice(0, 37) + '...' : firstLine;
+    }
+    
     initializeMenus() {
         this.menus = {
             main: [
@@ -274,9 +332,14 @@ class MenuApp {
                 { id: 'settings', title: 'Settings' }
             ],
             write: [
+                { id: 'new-note', title: 'New note', subtitle: '' },
+                { id: 'saved-notes', title: 'Saved notes', subtitle: '' },
                 { id: 'back', title: 'Back', subtitle: '' }
             ],
             'saved-text': [
+                { id: 'back', title: 'Back', subtitle: '' }
+            ],
+            'saved-notes': [
                 { id: 'back', title: 'Back', subtitle: '' }
             ],
             'games': [
@@ -387,7 +450,10 @@ class MenuApp {
             const titleMap = {
                 'main': 'Main Menu',
                 'write': 'Write',
+                'write-tool': 'Write',
                 'saved-text': 'Saved text',
+                'saved-notes': 'Saved notes',
+                'note-view': 'Note',
                 'games': 'Games',
                 'minesweeper': 'Minesweeper',
                 'minesweeper-settings': 'Minesweeper Settings',
@@ -458,7 +524,7 @@ class MenuApp {
         }
         
         // Special handling for Writing Tool (simplified T9 keypad)
-        if (this.currentMenu === 'write') {
+        if (this.currentMenu === 'write-tool') {
             // Update title
             if (menuTitleEl) {
                 // Remove title space entirely for writing tool
@@ -529,7 +595,7 @@ class MenuApp {
                 return btn;
             };
             
-            // Layout rows (omit suggestion row and bottom delete/action/exit)
+            // Layout rows (omit suggestion row and bottom delete/save/exit)
             const rows = [
                 [ ['space', ' ', 'key-space'], ['abc2', 'a', 'key-a'], ['def3', 'd', 'key-d'] ],
                 [ ['ghi4', 'g', 'key-g'], ['jkl5', 'j', 'key-j'], ['mno6', 'm', 'key-m'] ],
@@ -545,10 +611,11 @@ class MenuApp {
                 keypad.appendChild(rowEl);
             });
             
-            // Bottom row: delete and exit (regular-size buttons)
+            // Bottom row: delete, save, and exit (regular-size buttons)
             const bottomRow = document.createElement('div');
             bottomRow.className = 'keypad-row';
             bottomRow.appendChild(createKey('delete', '', 'delete'));
+            bottomRow.appendChild(createKey('save', '', 'save'));
             bottomRow.appendChild(createKey('exit', '', 'exit'));
             keypad.appendChild(bottomRow);
             
@@ -564,6 +631,92 @@ class MenuApp {
             });
             this.currentIndex = 0; // start from first key
             this.updateHighlight();
+            return;
+        }
+        
+        // Saved notes menu (paginated)
+        if (this.currentMenu === 'saved-notes') {
+            this.updateSavedNotesMenu();
+            // Build options array for MenuContainer
+            const containerOptions = this.options.map(option => ({
+                title: option.title,
+                subtitle: option.subtitle || '',
+                value: option.value,
+                id: option.id
+            }));
+            const menuContainerComponent = createMenuContainer({
+                title: `Saved notes (${this.notesPage}/${Math.max(1, Math.ceil(this.notes.length / this.notesPerPage))})`,
+                options: containerOptions,
+                highlightedIndex: 0,
+                isSettings: false
+            });
+            const newTitle = menuContainerComponent.querySelector('.menu-title');
+            const newOptions = menuContainerComponent.querySelector('.menu-options');
+            if (menuTitleEl && newTitle) {
+                menuTitleEl.replaceWith(newTitle); newTitle.id = 'menu-title';
+            }
+            if (menuOptions && newOptions) {
+                menuOptions.replaceWith(newOptions); newOptions.id = 'menu-options'; newOptions.className = 'menu-options';
+            }
+            const optionEls = newOptions.querySelectorAll('.menu-option');
+            optionEls.forEach((el, index) => { el.dataset.index = index; });
+            this.updateHighlight();
+            return;
+        }
+        
+        // Note view page
+        if (this.currentMenu === 'note-view') {
+            const note = this.notes.find(n => n.id === this.currentNoteId);
+            // Update title
+            if (menuTitleEl) {
+                const newTitle = createMenuTitle('Note');
+                menuTitleEl.replaceWith(newTitle); newTitle.id = 'menu-title';
+            }
+            // Clear and render note content + buttons
+            menuOptions.innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'writing-tool';
+            const textArea = document.createElement('textarea');
+            textArea.className = 'writing-textarea';
+            textArea.value = note ? note.text : '';
+            textArea.readOnly = true;
+            wrapper.appendChild(textArea);
+            const buttons = document.createElement('div');
+            buttons.className = 'writing-keypad';
+            const makeButton = (title, id) => {
+                const btn = document.createElement('div');
+                btn.className = 'menu-option';
+                btn.dataset.id = id;
+                const fill = document.createElement('div'); 
+                fill.className = 'progress-fill'; 
+                const content = document.createElement('div'); 
+                content.className = 'menu-option-content';
+                const titleEl = document.createElement('div'); 
+                titleEl.className = 'menu-option-title'; 
+                titleEl.textContent = title;
+                content.appendChild(titleEl); 
+                btn.appendChild(fill); 
+                btn.appendChild(content); 
+                return btn;
+            };
+            const backBtn = makeButton('Back', 'back');
+            const readBtn = makeButton('Read aloud', 'read-aloud');
+            const editBtn = makeButton('Edit', 'edit-note');
+            const delBtn = makeButton('Delete', 'delete-note');
+            buttons.appendChild(backBtn); buttons.appendChild(readBtn); buttons.appendChild(editBtn); buttons.appendChild(delBtn);
+            wrapper.appendChild(buttons);
+            menuOptions.appendChild(wrapper);
+            // Map options for selection
+            this.options = [
+                { id: 'back', title: 'Back' },
+                { id: 'read-aloud', title: 'Read aloud' },
+                { id: 'edit-note', title: 'Edit' },
+                { id: 'delete-note', title: 'Delete' }
+            ];
+            // index dataset
+            const optionEls = menuOptions.querySelectorAll('.menu-option');
+            optionEls.forEach((el, index) => { el.dataset.index = index; });
+            this.currentIndex = 0; this.updateHighlight();
             return;
         }
         
@@ -672,6 +825,27 @@ class MenuApp {
             // Update settings menu values dynamically before rendering
             if (this.currentMenu === 'settings') {
                 this.updateSettingsMenu();
+            } else if (this.currentMenu === 'write') {
+                // Dynamically annotate Saved notes option with count and disabled state
+                const count = Array.isArray(this.notes) ? this.notes.length : 0;
+                const savedOpt = this.menus.write.find(opt => opt.id === 'saved-notes');
+                if (savedOpt) {
+                    savedOpt.subtitle = count === 0 ? 'No notes' : (count === 1 ? '1 note' : `${count} notes`);
+                    savedOpt.disabled = count === 0;
+                }
+                // Refresh options so disabled flag is reflected in selection logic
+                this.options = this.menus[this.currentMenu] || [];
+                try {
+                    console.log('[renderMenu] write options:', this.options.map(o => ({ id: o.id, subtitle: o.subtitle, disabled: o.disabled })));
+                } catch {}
+                
+                // Start highlight on "Saved notes" when available, to avoid landing on "New note"
+                const savedIndex = this.options.findIndex(o => o.id === 'saved-notes' && !o.disabled);
+                if (savedIndex >= 0) {
+                    this.currentIndex = savedIndex;
+                } else {
+                    this.currentIndex = 0;
+                }
             } else if (this.currentMenu === 'minesweeper-settings') {
                 this.updateMinesweeperSettingsMenu();
             } else if (this.currentMenu === 'minesweeper') {
@@ -718,11 +892,33 @@ class MenuApp {
                 newOptions.className = 'menu-options';
             }
             
+            // If Saved notes is disabled, dim and make it non-selectable
+            if (this.currentMenu === 'write') {
+                const optionElsArr = Array.from(newOptions.querySelectorAll('.menu-option'));
+                const optIndex = this.menus.write.findIndex(opt => opt.id === 'saved-notes');
+                if (optIndex >= 0 && this.menus.write[optIndex].disabled) {
+                    const el = optionElsArr[optIndex];
+                    if (el) {
+                        el.style.opacity = '0.5';
+                        el.style.pointerEvents = 'none';
+                        el.dataset.disabled = 'true';
+                    }
+                }
+            }
+            
             // Add dataset.index to each option for selection logic
             const optionEls = newOptions.querySelectorAll('.menu-option');
             optionEls.forEach((el, index) => {
                 el.dataset.index = index;
+                const opt = this.options[index];
+                if (opt && opt.id) {
+                    el.dataset.id = opt.id;
+                }
             });
+            try {
+                const stamped = Array.from(optionEls).map(el => ({ index: el.dataset.index, id: el.dataset.id, text: (el.querySelector('.menu-option-title')||{}).textContent }));
+                console.log('[renderMenu] stamped elements:', stamped);
+            } catch {}
             
             // Update settings menu values after rendering if needed
             if (this.currentMenu === 'settings') {
@@ -744,7 +940,9 @@ class MenuApp {
     
     
     updateHighlight() {
-        const optionEls = document.querySelectorAll('.menu-option');
+        // Prefer scoping to current menu options container
+        const container = document.getElementById('menu-options');
+        const optionEls = container ? container.querySelectorAll('.menu-option') : document.querySelectorAll('.menu-option');
         optionEls.forEach((el, index) => {
             // Skip highlighting value display and disabled options
             if (el.dataset.selectable === 'false' || el.dataset.disabled === 'true') {
@@ -821,20 +1019,57 @@ class MenuApp {
     selectOption() {
         if (this.options.length === 0) return;
         
+        // Resolve selected DOM id for robust routing (prevents array/DOM mismatch)
+        let selectedDomId = null;
+        try {
+            const container = document.getElementById('menu-options');
+            const optionEls = container ? container.querySelectorAll('.menu-option') : document.querySelectorAll('.menu-option');
+            const el = optionEls && optionEls[this.currentIndex] ? optionEls[this.currentIndex] : null;
+            selectedDomId = el && el.dataset ? el.dataset.id : null;
+            const opt = this.options[this.currentIndex];
+            console.log('[selectOption] currentMenu:', this.currentMenu, 'index:', this.currentIndex, 'domId:', selectedDomId, 'optId:', opt && opt.id);
+        } catch {}
+        
         // Handle Minesweeper game selections
         if (this.minesweeperMode) {
             this.handleGameSelection();
             return;
         }
         
-        // Handle Writing Tool selections
+        // Handle Write menu early to avoid falling through generic handlers
         if (this.currentMenu === 'write') {
             const option = this.options[this.currentIndex];
-            if (!option) return;
-            if (option.id === 'exit') {
+            const id = selectedDomId || (option ? option.id : null);
+            if (!id) return;
+            if (id === 'new-note') {
+                this.editingNoteId = null;
+                this.navigateTo('write-tool');
+                return;
+            }
+            if (id === 'saved-notes') {
+                const count = Array.isArray(this.notes) ? this.notes.length : 0;
+                if (count === 0) {
+                    return; // disabled
+                }
+                this.notesPage = 1;
+                this.navigateTo('saved-notes');
+                return;
+            }
+            if (id === 'back') {
                 this.navigateBack();
                 return;
-            } else if (option.id === 'delete') {
+            }
+        }
+        
+        // Handle Writing Tool selections
+        if (this.currentMenu === 'write-tool') {
+            const option = this.options[this.currentIndex];
+            if (!option) return;
+            const id = selectedDomId || option.id;
+            if (id === 'exit') {
+                this.navigateBack();
+                return;
+            } else if (id === 'delete') {
                 const textArea = document.getElementById('writing-textarea');
                 if (textArea && textArea.value.length > 0) {
                     textArea.value = textArea.value.slice(0, -1);
@@ -847,10 +1082,23 @@ class MenuApp {
                 this.pendingFirstItemWait = true;
                 this.startAutoScroll();
                 return;
+            } else if (id === 'save') {
+                const textArea = document.getElementById('writing-textarea');
+                const text = textArea ? textArea.value : '';
+                let saved;
+                if (this.editingNoteId) {
+                    saved = this.updateNote(this.editingNoteId, text);
+                } else {
+                    saved = this.createNote(text);
+                }
+                this.editingNoteId = null;
+                this.currentNoteId = saved ? saved.id : null;
+                this.navigateTo('note-view');
+                return;
             }
             const textArea = document.getElementById('writing-textarea');
             if (textArea) {
-                const output = option.output || '';
+                const output = (option && option.output) || '';
                 textArea.value += output;
                 textArea.focus();
                 textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
@@ -862,6 +1110,74 @@ class MenuApp {
             this.pendingFirstItemWait = true;
             this.startAutoScroll();
             return;
+        }
+        
+        // Handle Write menu
+        if (this.currentMenu === 'write') {
+            const option = this.options[this.currentIndex];
+            const id = selectedDomId || (option ? option.id : null);
+            if (!id) return;
+            if (id === 'new-note') {
+                this.editingNoteId = null;
+                this.navigateTo('write-tool');
+                return;
+            }
+            if (id === 'saved-notes') {
+                const count = Array.isArray(this.notes) ? this.notes.length : 0;
+                if (count === 0) {
+                    // Disabled - ignore selection
+                    return;
+                }
+                this.notesPage = 1;
+                this.navigateTo('saved-notes');
+                return;
+            }
+            if (id === 'back') {
+                this.navigateBack();
+                return;
+            }
+        }
+        
+        // Handle Saved Notes menu
+        if (this.currentMenu === 'saved-notes') {
+            const option = this.options[this.currentIndex];
+            if (!option) return;
+            if (option.id === 'next-page') {
+                const totalPages = Math.max(1, Math.ceil(this.notes.length / this.notesPerPage));
+                this.notesPage = Math.min(totalPages, this.notesPage + 1);
+                this.renderMenu();
+                return;
+            }
+            if (option.id && option.id.startsWith('note-')) {
+                this.currentNoteId = option.id.slice(5);
+                this.navigateTo('note-view');
+                return;
+            }
+        }
+        
+        // Handle Note view menu
+        if (this.currentMenu === 'note-view') {
+            const option = this.options[this.currentIndex];
+            if (!option) return;
+            if (option.id === 'read-aloud') {
+                const note = this.notes.find(n => n.id === this.currentNoteId);
+                if (note) {
+                    this.readAloud(note.text);
+                }
+                return;
+            }
+            if (option.id === 'edit-note') {
+                this.editingNoteId = this.currentNoteId;
+                this.navigateTo('write-tool');
+                return;
+            }
+            if (option.id === 'delete-note') {
+                // On selection complete (handled by startSelection hold), perform delete
+                this.deleteNote(this.currentNoteId);
+                this.currentNoteId = null;
+                this.navigateTo('saved-notes');
+                return;
+            }
         }
         
         const option = this.options[this.currentIndex];
@@ -1291,14 +1607,24 @@ class MenuApp {
     }
     
     navigateTo(menuId) {
+        try {
+            console.log('[navigateTo] request:', menuId, 'from:', this.currentMenu);
+        } catch {}
+        // Normalize aliases to concrete screens
+        if (menuId === 'new-note') {
+            menuId = 'write-tool';
+        }
         this.menuStack.push(this.currentMenu);
         this.currentMenu = menuId;
         this.renderMenu();
         this.resetBlinkState();
-        // Apply first-item wait once upon entering a new menu
-        this.pendingFirstItemWait = true;
+        // Apply first-item wait once upon entering a new menu (skip on write menu to avoid bias)
+        this.pendingFirstItemWait = (this.currentMenu !== 'write');
         // Restart auto-scroll so the initial delay logic (with first-item wait) applies immediately
         this.startAutoScroll();
+        try {
+            console.log('[navigateTo] navigated to:', this.currentMenu);
+        } catch {}
     }
     
     updateSettingsMenu() {
@@ -1321,6 +1647,32 @@ class MenuApp {
                 firstItemWaitOption.value = `${this.firstItemWaitSeconds.toFixed(1)}s`;
             }
         }
+    }
+    
+    updateSavedNotesMenu() {
+        const totalPages = Math.max(1, Math.ceil(this.notes.length / this.notesPerPage));
+        if (this.notesPage > totalPages) this.notesPage = totalPages;
+        const start = (this.notesPage - 1) * this.notesPerPage;
+        const slice = this.notes.slice(start, start + this.notesPerPage);
+        const options = [{ id: 'back', title: 'Back', subtitle: '' }];
+        slice.forEach(n => options.push({ id: `note-${n.id}`, title: this.getNotePreview(n.text), subtitle: '' }));
+        if (this.notesPage < totalPages) {
+            options.push({ id: 'next-page', title: 'Next page', subtitle: '' });
+        }
+        this.options = options;
+        this.currentIndex = 0;
+    }
+    
+    readAloud(text) {
+        // Piper WASM placeholder: if a Piper integration is provided, call it here.
+        // Fallback to Web Speech API for now.
+        try {
+            if ('speechSynthesis' in window) {
+                const u = new SpeechSynthesisUtterance(text);
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(u);
+            }
+        } catch {}
     }
     
     updateMinesweeperSettingsMenu() {
@@ -2171,7 +2523,7 @@ class MenuApp {
         if (!this.eyesWereOpen) return; // Don't start if eyes weren't open first
         
         // Custom selection behavior for Writing Tool
-        if (this.currentMenu === 'write') {
+        if (this.currentMenu === 'write-tool') {
             const optionEls = document.querySelectorAll('.menu-option');
             if (this.currentIndex < 0 || this.currentIndex >= optionEls.length) return;
             const optionEl = optionEls[this.currentIndex];
@@ -2214,6 +2566,44 @@ class MenuApp {
                 };
                 
                 this.selectionAnimationFrame = requestAnimationFrame(animateSpace);
+                return;
+            }
+            
+            // Handle Save button (hold to commit)
+            if (id === 'save') {
+                const textArea = document.getElementById('writing-textarea');
+                const holdTime = this.blinkThreshold;
+                this.isSelecting = true;
+                this.selectionStartTime = Date.now();
+                
+                const animateSave = () => {
+                    if (!this.isSelecting) {
+                        this.cancelSelection();
+                        return;
+                    }
+                    const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                    const progress = Math.min(elapsed / holdTime, 1);
+                    if (progressFill) {
+                        progressFill.style.width = `${progress * 100}%`;
+                    }
+                    if (progress >= 1) {
+                        const text = textArea ? textArea.value : '';
+                        let saved;
+                        if (this.editingNoteId) {
+                            saved = this.updateNote(this.editingNoteId, text);
+                        } else {
+                            saved = this.createNote(text);
+                        }
+                        this.editingNoteId = null;
+                        this.currentNoteId = saved ? saved.id : null;
+                        this.cancelSelection();
+                        this.navigateTo('note-view');
+                        return;
+                    }
+                    this.selectionAnimationFrame = requestAnimationFrame(animateSave);
+                };
+                
+                this.selectionAnimationFrame = requestAnimationFrame(animateSave);
                 return;
             }
             
@@ -2733,6 +3123,8 @@ class MenuApp {
                     holdTime = this.exitGameHoldTime;
                 }
             }
+        } else if (this.currentMenu === 'note-view' && this.options[this.currentIndex] && this.options[this.currentIndex].id === 'delete-note') {
+            holdTime = 2.0;
         }
         
         this.isSelecting = true;
@@ -2819,7 +3211,7 @@ class MenuApp {
         this.updateHighlightedAreaProgress(0);
         
         // For Writing Tool, reset cursor to first button after any blink release
-        if (this.currentMenu === 'write') {
+        if (this.currentMenu === 'write-tool') {
             // If text was modified (character, space, delete), apply one-time dwell on first key
             if (this.writeActionOccurred) {
                 this.pendingFirstItemWait = true;
