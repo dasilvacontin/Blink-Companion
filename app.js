@@ -103,6 +103,9 @@ class MenuApp {
         // Debug mode - check URL for ?debug parameter
         this.debugMode = this.isDebugMode();
         
+        // Writing tool state
+        this.writeActionOccurred = false; // Track if a write action modified text during current blink/action
+        
         // Check if we should skip the lock screen (for development)
         const shouldSkipLockscreen = this.shouldSkipLockscreen();
         if (shouldSkipLockscreen) {
@@ -838,8 +841,11 @@ class MenuApp {
                     textArea.focus();
                     textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
                 }
+                this.writeActionOccurred = true;
                 this.currentIndex = 0;
                 this.updateHighlight();
+                this.pendingFirstItemWait = true;
+                this.startAutoScroll();
                 return;
             }
             const textArea = document.getElementById('writing-textarea');
@@ -852,6 +858,9 @@ class MenuApp {
             // After triggering a key, reset cursor to the first option
             this.currentIndex = 0;
             this.updateHighlight();
+            this.writeActionOccurred = true;
+            this.pendingFirstItemWait = true;
+            this.startAutoScroll();
             return;
         }
         
@@ -2177,9 +2186,12 @@ class MenuApp {
                     textArea.focus();
                     textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
                 }
+                this.writeActionOccurred = true;
                 this.cancelSelection();
                 this.currentIndex = 0;
                 this.updateHighlight();
+                this.pendingFirstItemWait = true;
+                this.startAutoScroll();
                 return;
             }
             
@@ -2236,6 +2248,8 @@ class MenuApp {
                             textArea.focus();
                             textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
                         }
+                        // Mark that a write action occurred (so cancelSelection can apply dwell)
+                        this.writeActionOccurred = true;
                         nextDeleteTime += deleteStep;
                     }
                     
@@ -2253,6 +2267,8 @@ class MenuApp {
                 textArea.focus();
                 textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
                 insertedStartIndex = textArea.value.length - 1;
+                // Mark that text changed immediately on starting selection
+                this.writeActionOccurred = true;
             }
             
             this.isSelecting = true;
@@ -2285,6 +2301,8 @@ class MenuApp {
                         textArea.focus();
                         textArea.selectionStart = textArea.selectionEnd = insertedStartIndex + 1;
                     }
+                    // Still a text modification; keep the flag true
+                    this.writeActionOccurred = true;
                     lastStepIndex = currentStepIndex;
                 }
                 
@@ -2780,8 +2798,17 @@ class MenuApp {
         
         // For Writing Tool, reset cursor to first button after any blink release
         if (this.currentMenu === 'write') {
-            this.currentIndex = 0;
-            this.updateHighlight();
+            // If text was modified (character, space, delete), apply one-time dwell on first key
+            if (this.writeActionOccurred) {
+                this.pendingFirstItemWait = true;
+                this.writeActionOccurred = false;
+                this.currentIndex = 0;
+                this.updateHighlight();
+                this.startAutoScroll();
+            } else {
+                this.currentIndex = 0;
+                this.updateHighlight();
+            }
         }
         
         // If flag was toggled and blink was released early, re-center play area on that square
