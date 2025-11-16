@@ -2027,6 +2027,101 @@ class MenuApp {
         if (this.isSelecting) return;
         if (!this.eyesWereOpen) return; // Don't start if eyes weren't open first
         
+        // Custom selection behavior for Writing Tool
+        if (this.currentMenu === 'write') {
+            const optionEls = document.querySelectorAll('.menu-option');
+            if (this.currentIndex < 0 || this.currentIndex >= optionEls.length) return;
+            const optionEl = optionEls[this.currentIndex];
+            const id = optionEl.dataset.id;
+            const progressFill = optionEl.querySelector('.progress-fill');
+            
+            // Determine character sequence for this key
+            let characters = [];
+            if (id === 'space') {
+                characters = [' '];
+            } else if (id === 'exit') {
+                characters = []; // exit doesn't type characters
+            } else {
+                const titleEl = optionEl.querySelector('.menu-option-title');
+                const labelText = titleEl ? titleEl.textContent : '';
+                // Include letters and numbers from the button label (e.g., "abc2")
+                characters = (labelText.match(/[a-z0-9]/gi) || []).map(ch => ch.toLowerCase());
+            }
+            
+            const textArea = document.getElementById('writing-textarea');
+            let stepDuration = 0.5; // seconds per character step
+            let totalSteps = Math.max(characters.length, id === 'exit' ? 1 : 0);
+            // Exit should require 2 seconds to trigger fully
+            if (id === 'exit') {
+                totalSteps = Math.max(totalSteps, Math.ceil(2.0 / stepDuration)); // 4 steps of 0.5s each
+            }
+            const totalDuration = totalSteps * stepDuration;
+            
+            // Insert first character immediately (if any)
+            let insertedStartIndex = null;
+            if (textArea && characters.length > 0) {
+                textArea.value += characters[0];
+                textArea.focus();
+                textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+                insertedStartIndex = textArea.value.length - 1;
+            }
+            
+            this.isSelecting = true;
+            this.selectionStartTime = Date.now();
+            let lastStepIndex = 0; // already applied step 0 if characters exist
+            
+            const animate = () => {
+                if (!this.isSelecting) {
+                    this.cancelSelection();
+                    return;
+                }
+                
+                const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                
+                // Update progress fill to match discrete steps
+                if (progressFill && totalSteps > 0) {
+                    const fill = Math.min(elapsed / totalDuration, 1) * 100;
+                    progressFill.style.width = `${fill}%`;
+                }
+                
+                // Determine current step (0-based)
+                const currentStepIndex = Math.min(Math.floor(elapsed / stepDuration), Math.max(totalSteps - 1, 0));
+                
+                // If advanced to a new step, replace last typed character
+                if (characters.length > 0 && currentStepIndex !== lastStepIndex && currentStepIndex < characters.length) {
+                    if (insertedStartIndex !== null) {
+                        const before = textArea.value.slice(0, insertedStartIndex);
+                        const after = textArea.value.slice(insertedStartIndex + 1);
+                        textArea.value = before + characters[currentStepIndex] + after;
+                        textArea.focus();
+                        textArea.selectionStart = textArea.selectionEnd = insertedStartIndex + 1;
+                    }
+                    lastStepIndex = currentStepIndex;
+                }
+                
+                // Completion condition
+                if (totalSteps > 0 && elapsed >= totalDuration) {
+                    // For exit, trigger navigation when full
+                    if (id === 'exit') {
+                        this.cancelSelection();
+                        this.navigateBack();
+                        return;
+                    }
+                    // For character keys, nothing else to do (last character already shown)
+                    this.cancelSelection();
+                    // Reset cursor to first option
+                    this.currentIndex = 0;
+                    this.updateHighlight();
+                    return;
+                }
+                
+                this.selectionAnimationFrame = requestAnimationFrame(animate);
+            };
+            
+            this.selectionAnimationFrame = requestAnimationFrame(animate);
+            return;
+        }
+        
         // Handle game-over menu selections
         if (this.minesweeperMode && this.gameMode === 'game-over') {
             // Allow selections in game-over menu - this will fall through to menu option selection
@@ -2493,6 +2588,12 @@ class MenuApp {
         
         // Clear highlighted area progress
         this.updateHighlightedAreaProgress(0);
+        
+        // For Writing Tool, reset cursor to first button after any blink release
+        if (this.currentMenu === 'write') {
+            this.currentIndex = 0;
+            this.updateHighlight();
+        }
         
         // If flag was toggled and blink was released early, re-center play area on that square
         if (flagWasToggled) {
