@@ -2178,20 +2178,42 @@ class MenuApp {
             const id = optionEl.dataset.id;
             const progressFill = optionEl.querySelector('.progress-fill');
             
-            // Space: immediately insert a space and finish
+            // Space: fill progress then insert on full hold (blinkThreshold)
             if (id === 'key-space' || id === 'space') {
                 const textArea = document.getElementById('writing-textarea');
-                if (textArea) {
-                    textArea.value += ' ';
-                    textArea.focus();
-                    textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
-                }
-                this.writeActionOccurred = true;
-                this.cancelSelection();
-                this.currentIndex = 0;
-                this.updateHighlight();
-                this.pendingFirstItemWait = true;
-                this.startAutoScroll();
+                const holdTime = this.blinkThreshold;
+                
+                this.isSelecting = true;
+                this.selectionStartTime = Date.now();
+                
+                const animateSpace = () => {
+                    if (!this.isSelecting) {
+                        this.cancelSelection();
+                        return;
+                    }
+                    const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                    const progress = Math.min(elapsed / holdTime, 1);
+                    if (progressFill) {
+                        progressFill.style.width = `${progress * 100}%`;
+                    }
+                    if (progress >= 1) {
+                        if (textArea) {
+                            textArea.value += ' ';
+                            textArea.focus();
+                            textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+                        }
+                        this.writeActionOccurred = true;
+                        this.cancelSelection();
+                        this.currentIndex = 0;
+                        this.updateHighlight();
+                        this.pendingFirstItemWait = true;
+                        this.startAutoScroll();
+                        return;
+                    }
+                    this.selectionAnimationFrame = requestAnimationFrame(animateSpace);
+                };
+                
+                this.selectionAnimationFrame = requestAnimationFrame(animateSpace);
                 return;
             }
             
