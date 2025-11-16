@@ -130,6 +130,7 @@ class MenuApp {
         // Calibration state
         this.isCalibrating = false;
         this.calibrationStep = 0;
+        this.isInitialCalibration = false; // Track if this is the initial calibration (from initial-calibration screen)
         this.calibrationData = {
             bothEyesOpen: [],
             leftEyeClosed: [],
@@ -4600,6 +4601,8 @@ class MenuApp {
     startCalibration() {
         this.isCalibrating = true;
         this.calibrationStep = 0;
+        // Track if this is the initial calibration (from initial-calibration screen)
+        this.isInitialCalibration = this.currentMenu === 'initial-calibration';
         this.calibrationData = {
             bothEyesOpen: [],
             leftEyeClosed: [],
@@ -4966,10 +4969,41 @@ class MenuApp {
         
         // If this was the initial calibration, go directly to main menu
         // Otherwise, show completion screen (for re-calibration from settings)
-        if (this.currentMenu === 'initial-calibration') {
+        // Check currentMenu directly - if it's 'initial-calibration', navigate to main menu
+        const wasInitialCalibration = this.currentMenu === 'initial-calibration' || this.isInitialCalibration;
+        
+        if (wasInitialCalibration) {
             // Navigate to main menu
+            // Clean up calibration screen and recreate proper menu structure
+            const menuContainerEl = document.getElementById('menu-container');
+            if (menuContainerEl) {
+                menuContainerEl.innerHTML = '';
+                menuContainerEl.className = '';
+                menuContainerEl.style.cssText = '';
+                
+                // Recreate the proper menu structure that renderMenu() expects
+                const menuTitle = document.createElement('h1');
+                menuTitle.id = 'menu-title';
+                menuTitle.className = 'menu-title';
+                menuContainerEl.appendChild(menuTitle);
+                
+                const menuOptions = document.createElement('div');
+                menuOptions.id = 'menu-options';
+                menuOptions.className = 'menu-options';
+                menuContainerEl.appendChild(menuOptions);
+            }
+            
+            // Set menu and unlock state
             this.currentMenu = 'main';
             this.isLocked = false; // Unlock the app after initial calibration
+            this.isInitialCalibration = false; // Reset flag
+            
+            // Ensure menus are initialized before rendering
+            if (!this.menus) {
+                this.initializeMenus();
+            }
+            
+            // Render the main menu
             this.renderMenu();
         } else {
             // Show completion screen for re-calibration
