@@ -1666,16 +1666,88 @@ class MenuApp {
         this.currentIndex = 0;
     }
     
-    readAloud(text) {
+    async readAloud(text) {
         // Piper WASM placeholder: if a Piper integration is provided, call it here.
-        // Fallback to Web Speech API for now.
+        // Robust Web Speech API fallback with iOS guards
         try {
-            if ('speechSynthesis' in window) {
-                const u = new SpeechSynthesisUtterance(text);
-                window.speechSynthesis.cancel();
-                window.speechSynthesis.speak(u);
+            if (!('speechSynthesis' in window)) return;
+            
+            // Lazy detect iOS
+            if (this.isIOS === undefined) {
+                this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
             }
+            
+            // Ensure voices are available (Safari/iOS often needs voiceschanged or a delay)
+            await this.ensureTTSReady();
+            
+            const u = new SpeechSynthesisUtterance(text);
+            // Pick a reasonable English voice when available (Samantha on iOS usually)
+            const voice = this.getPreferredVoice();
+            if (voice) u.voice = voice;
+            u.rate = 1.0;
+            u.pitch = 1.0;
+            u.lang = (voice && voice.lang) ? voice.lang : 'en-US';
+            
+            // iOS WebKit resume workaround: periodically call resume() while speaking
+            let resumeTimer = null;
+            if (this.isIOS && window.speechSynthesis && typeof window.speechSynthesis.resume === 'function') {
+                resumeTimer = setInterval(() => {
+                    try { window.speechSynthesis.resume(); } catch {}
+                }, 200);
+                u.onend = u.onerror = () => { if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; } };
+            }
+            
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(u);
         } catch {}
+    }
+    
+    async ensureTTSReady() {
+        if (!('speechSynthesis' in window)) return false;
+        // Cache voices if we already have them
+        const haveVoices = Array.isArray(this.ttsVoices) && this.ttsVoices.length > 0;
+        if (haveVoices) return true;
+        
+        const synth = window.speechSynthesis;
+        const get = () => synth.getVoices() || [];
+        
+        let voices = get();
+        if (voices.length > 0) {
+            this.ttsVoices = voices;
+            return true;
+        }
+        
+        // Wait for voiceschanged or timeout
+        await new Promise((resolve) => {
+            const done = () => {
+                voices = get();
+                this.ttsVoices = voices;
+                resolve();
+            };
+            const onVoices = () => {
+                synth.removeEventListener('voiceschanged', onVoices);
+                done();
+            };
+            synth.addEventListener('voiceschanged', onVoices);
+            // Kick the voices load on some browsers
+            try { synth.getVoices(); } catch {}
+            // Fallback timeout
+            setTimeout(() => {
+                synth.removeEventListener('voiceschanged', onVoices);
+                done();
+            }, 1200);
+        });
+        return (this.ttsVoices && this.ttsVoices.length > 0);
+    }
+    
+    getPreferredVoice() {
+        if (!this.ttsVoices || this.ttsVoices.length === 0) return null;
+        // Prefer an en-US female on iOS (Samantha), otherwise first en*
+        const voices = this.ttsVoices;
+        let v = voices.find(v => /Samantha/i.test(v.name));
+        if (v) return v;
+        v = voices.find(v => v.lang && /^en(-|_|$)/i.test(v.lang));
+        return v || voices[0];
     }
     
     updateMinesweeperSettingsMenu() {
