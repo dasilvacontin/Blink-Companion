@@ -78,6 +78,8 @@ class MenuApp {
         this.eyeClosedStartTime = null; // When eyes first detected as closed (for debounce)
         this.BLINK_DEBOUNCE_TIME = 200; // Milliseconds eyes must be closed before registering as blink start (configurable)
         this.blinkDebounceSeconds = 0.2; // UI setting in seconds; mirrored to BLINK_DEBOUNCE_TIME
+        this.firstItemWaitSeconds = 0.5; // Extra dwell time on first selectable item after actions
+        this.pendingFirstItemWait = false; // Apply first-item wait only once after an action/navigation
         
         // SOS Pattern state (for lock screen)
         this.sosPattern = [0.2, 0.2, 0.2, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2]; // short, short, short, long, long, long, short, short, short
@@ -211,6 +213,7 @@ class MenuApp {
         const savedEarThresholdRight = localStorage.getItem('earThresholdRight');
         const savedEarThreshold = localStorage.getItem('earThreshold'); // Legacy support
         const savedBlinkDebounceSeconds = localStorage.getItem('blinkDebounceSeconds');
+        const savedFirstItemWaitSeconds = localStorage.getItem('firstItemWaitSeconds');
         
         if (savedScrollSpeed) {
             this.scrollSpeed = parseFloat(savedScrollSpeed);
@@ -242,6 +245,10 @@ class MenuApp {
             // Ensure ms mirror is in sync with default seconds
             this.BLINK_DEBOUNCE_TIME = Math.round(this.blinkDebounceSeconds * 1000);
         }
+        if (savedFirstItemWaitSeconds) {
+            const v = parseFloat(savedFirstItemWaitSeconds);
+            if (!isNaN(v)) this.firstItemWaitSeconds = v;
+        }
     }
     
     saveSettings() {
@@ -251,6 +258,7 @@ class MenuApp {
         localStorage.setItem('earThresholdLeft', this.earThresholdLeft.toString());
         localStorage.setItem('earThresholdRight', this.earThresholdRight.toString());
         localStorage.setItem('blinkDebounceSeconds', this.blinkDebounceSeconds.toString());
+        localStorage.setItem('firstItemWaitSeconds', this.firstItemWaitSeconds.toString());
     }
     
     initializeMenus() {
@@ -301,9 +309,10 @@ class MenuApp {
             ],
             settings: [
                 { id: 'back', title: 'Back', subtitle: '' },
-                { id: 'scroll-speed', title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '' },
                 { id: 'blink-debounce', title: 'Blink debounce', subtitle: 'Minimum time eyes must be closed to start a blink', value: '' },
-                { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' }
+                { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' },
+                { id: 'scroll-speed', title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '' },
+                { id: 'first-item-wait', title: 'First-Item Wait', subtitle: 'Extra time the cursor waits on the first item after actions', value: '' }
             ],
             debug: [
                 { id: 'back', title: 'Back', subtitle: '' },
@@ -358,6 +367,8 @@ class MenuApp {
         let titleText = '';
         if (this.currentMenu === 'scroll-speed') {
             titleText = 'Settings / Scroll Speed';
+        } else if (this.currentMenu === 'first-item-wait') {
+            titleText = 'Settings / First-Item Wait';
         } else if (this.currentMenu === 'blink-threshold') {
             titleText = 'Settings / Blink threshold';
         } else if (this.currentMenu === 'blink-debounce') {
@@ -553,10 +564,12 @@ class MenuApp {
         }
         
         // Special handling for settings detail pages - use SettingsDetail component
-        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size' || this.currentMenu === 'blink-debounce') {
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size' || this.currentMenu === 'blink-debounce' || this.currentMenu === 'first-item-wait') {
             let currentValue;
             if (this.currentMenu === 'scroll-speed') {
                 currentValue = this.scrollSpeed;
+            } else if (this.currentMenu === 'first-item-wait') {
+                currentValue = this.firstItemWaitSeconds;
             } else if (this.currentMenu === 'blink-threshold') {
                 currentValue = this.blinkThreshold;
             } else if (this.currentMenu === 'blink-debounce') {
@@ -746,43 +759,59 @@ class MenuApp {
     
     startAutoScroll() {
         if (this.scrollInterval) {
-            clearInterval(this.scrollInterval);
+            clearTimeout(this.scrollInterval);
+            this.scrollInterval = null;
         }
         
-        this.scrollInterval = setInterval(() => {
+        const getSelectableIndices = () => {
+            const selectable = [];
+            this.options.forEach((opt, idx) => {
+                if (opt.selectable === false || opt.disabled) return;
+                selectable.push(idx);
+            });
+            return selectable;
+        };
+        
+        const loop = () => {
             if (!this.isSelecting) {
-                // Get selectable options (skip value and disabled)
-                const getSelectableIndices = () => {
-                    const selectable = [];
-                    this.options.forEach((opt, idx) => {
-                        if (opt.selectable === false || opt.disabled) return;
-                        selectable.push(idx);
-                    });
-                    return selectable;
-                };
-                
                 const selectableIndices = getSelectableIndices();
-                
                 if (selectableIndices.length > 0) {
-                    // Find current index in selectable list
                     let currentSelectableIdx = selectableIndices.indexOf(this.currentIndex);
-                    
-                    // If current is not selectable, use first selectable
-                    if (currentSelectableIdx < 0) {
-                        currentSelectableIdx = 0;
-                    }
+                    if (currentSelectableIdx < 0) currentSelectableIdx = 0;
                     
                     // Move to next selectable
                     currentSelectableIdx = (currentSelectableIdx + 1) % selectableIndices.length;
                     this.currentIndex = selectableIndices[currentSelectableIdx];
                 } else {
-                    // Fallback
                     this.currentIndex = (this.currentIndex + 1) % this.options.length;
                 }
-                
                 this.updateHighlight();
             }
-        }, this.scrollSpeed * 1000);
+            
+            // Decide next delay. If we're on first selectable, add first-item wait.
+            const selectableIndices = getSelectableIndices();
+            const firstSelectable = selectableIndices.length > 0 ? selectableIndices[0] : 0;
+            const isOnFirst = this.currentIndex === firstSelectable;
+            const baseDelay = this.scrollSpeed * 1000;
+            const shouldApplyExtra = isOnFirst && this.pendingFirstItemWait;
+            const extra = shouldApplyExtra ? (this.firstItemWaitSeconds * 1000) : 0;
+            // Consume the one-time extra wait if we used it
+            if (shouldApplyExtra) {
+                this.pendingFirstItemWait = false;
+            }
+            this.scrollInterval = setTimeout(loop, baseDelay + extra);
+        };
+        
+        // Start immediately with the first delay (apply extra only if we're on the first selectable)
+        const selectableAtStart = getSelectableIndices();
+        const firstSelectableAtStart = selectableAtStart.length > 0 ? selectableAtStart[0] : 0;
+        const initialShouldApplyExtra = (this.currentIndex === firstSelectableAtStart) && this.pendingFirstItemWait;
+        const initialDelay = (this.scrollSpeed * 1000) + (initialShouldApplyExtra ? this.firstItemWaitSeconds * 1000 : 0);
+        if (initialShouldApplyExtra) {
+            // Consume first wait on initial run if applied
+            this.pendingFirstItemWait = false;
+        }
+        this.scrollInterval = setTimeout(loop, initialDelay);
     }
     
     selectOption() {
@@ -1158,6 +1187,11 @@ class MenuApp {
             this.saveSettings();
             this.updateValueDisplay();
             this.updateDisabledStates();
+        } else if (this.currentMenu === 'first-item-wait') {
+            this.firstItemWaitSeconds = Math.max(0, this.firstItemWaitSeconds - 0.1);
+            this.saveSettings();
+            this.updateValueDisplay();
+            this.updateDisabledStates();
         }
         // Update settings menu values if we're going back to settings
         this.updateSettingsMenu();
@@ -1181,6 +1215,11 @@ class MenuApp {
             this.saveSettings();
             this.updateValueDisplay();
             this.updateDisabledStates();
+        } else if (this.currentMenu === 'first-item-wait') {
+            this.firstItemWaitSeconds += 0.1;
+            this.saveSettings();
+            this.updateValueDisplay();
+            this.updateDisabledStates();
         }
         // Update settings menu values if we're going back to settings
         this.updateSettingsMenu();
@@ -1188,12 +1227,14 @@ class MenuApp {
     
     updateValueDisplay() {
         // Update value display for settings detail pages without re-rendering entire menu
-        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size' || this.currentMenu === 'blink-debounce') {
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size' || this.currentMenu === 'blink-debounce' || this.currentMenu === 'first-item-wait') {
             let currentValue;
             if (this.currentMenu === 'scroll-speed') {
                 currentValue = this.scrollSpeed;
             } else if (this.currentMenu === 'blink-threshold') {
                 currentValue = this.blinkThreshold;
+            } else if (this.currentMenu === 'first-item-wait') {
+                currentValue = this.firstItemWaitSeconds;
             } else if (this.currentMenu === 'blink-debounce') {
                 currentValue = this.blinkDebounceSeconds;
             } else if (this.currentMenu === 'minesweeper-focus-area-size') {
@@ -1232,6 +1273,10 @@ class MenuApp {
         this.currentMenu = menuId;
         this.renderMenu();
         this.resetBlinkState();
+        // Apply first-item wait once upon entering a new menu
+        this.pendingFirstItemWait = true;
+        // Restart auto-scroll so the initial delay logic (with first-item wait) applies immediately
+        this.startAutoScroll();
     }
     
     updateSettingsMenu() {
@@ -1240,6 +1285,7 @@ class MenuApp {
             const scrollSpeedOption = this.menus.settings.find(opt => opt.id === 'scroll-speed');
             const blinkThresholdOption = this.menus.settings.find(opt => opt.id === 'blink-threshold');
             const blinkDebounceOption = this.menus.settings.find(opt => opt.id === 'blink-debounce');
+            const firstItemWaitOption = this.menus.settings.find(opt => opt.id === 'first-item-wait');
             if (scrollSpeedOption) {
                 scrollSpeedOption.value = `${this.scrollSpeed.toFixed(1)}s`;
             }
@@ -1248,6 +1294,9 @@ class MenuApp {
             }
             if (blinkDebounceOption) {
                 blinkDebounceOption.value = `${this.blinkDebounceSeconds.toFixed(1)}s`;
+            }
+            if (firstItemWaitOption) {
+                firstItemWaitOption.value = `${this.firstItemWaitSeconds.toFixed(1)}s`;
             }
         }
     }
@@ -1373,6 +1422,10 @@ class MenuApp {
             this.renderMenu();
         }
         this.resetBlinkState();
+        // Apply first-item wait once after navigating back
+        this.pendingFirstItemWait = true;
+        // Ensure the new menu run starts its own auto-scroll cycle with initial delay
+        this.startAutoScroll();
     }
     
     startMinesweeperGame() {
