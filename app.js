@@ -27,7 +27,6 @@ const DEFAULT_BLINK_THRESHOLD = 1.0; // seconds
 class MenuApp {
     constructor() {
         this.currentMenu = 'lock';
-        this.menuStack = [];
         this.options = [];
         this.currentIndex = 0;
         this.scrollSpeed = DEFAULT_SCROLL_SPEED;
@@ -659,7 +658,11 @@ class MenuApp {
                 menuOptions.replaceWith(newOptions); newOptions.id = 'menu-options'; newOptions.className = 'menu-options';
             }
             const optionEls = newOptions.querySelectorAll('.menu-option');
-            optionEls.forEach((el, index) => { el.dataset.index = index; });
+            optionEls.forEach((el, index) => { 
+                el.dataset.index = index; 
+                const mapped = this.options[index];
+                if (mapped && mapped.id) el.dataset.id = mapped.id;
+            });
             this.updateHighlight();
             return;
         }
@@ -699,19 +702,19 @@ class MenuApp {
                 btn.appendChild(content); 
                 return btn;
             };
-            const backBtn = makeButton('Back', 'back');
             const readBtn = makeButton('Read aloud', 'read-aloud');
             const editBtn = makeButton('Edit', 'edit-note');
             const delBtn = makeButton('Delete', 'delete-note');
-            buttons.appendChild(backBtn); buttons.appendChild(readBtn); buttons.appendChild(editBtn); buttons.appendChild(delBtn);
+            const closeBtn = makeButton('Close', 'close');
+            buttons.appendChild(readBtn); buttons.appendChild(editBtn); buttons.appendChild(delBtn); buttons.appendChild(closeBtn);
             wrapper.appendChild(buttons);
             menuOptions.appendChild(wrapper);
             // Map options for selection
             this.options = [
-                { id: 'back', title: 'Back' },
                 { id: 'read-aloud', title: 'Read aloud' },
                 { id: 'edit-note', title: 'Edit' },
-                { id: 'delete-note', title: 'Delete' }
+                { id: 'delete-note', title: 'Delete' },
+                { id: 'close', title: 'Close' }
             ];
             // index dataset
             const optionEls = menuOptions.querySelectorAll('.menu-option');
@@ -835,9 +838,7 @@ class MenuApp {
                 }
                 // Refresh options so disabled flag is reflected in selection logic
                 this.options = this.menus[this.currentMenu] || [];
-                try {
-                    console.log('[renderMenu] write options:', this.options.map(o => ({ id: o.id, subtitle: o.subtitle, disabled: o.disabled })));
-                } catch {}
+                
                 
                 // Start highlight on "Saved notes" when available, to avoid landing on "New note"
                 const savedIndex = this.options.findIndex(o => o.id === 'saved-notes' && !o.disabled);
@@ -915,10 +916,7 @@ class MenuApp {
                     el.dataset.id = opt.id;
                 }
             });
-            try {
-                const stamped = Array.from(optionEls).map(el => ({ index: el.dataset.index, id: el.dataset.id, text: (el.querySelector('.menu-option-title')||{}).textContent }));
-                console.log('[renderMenu] stamped elements:', stamped);
-            } catch {}
+            
             
             // Update settings menu values after rendering if needed
             if (this.currentMenu === 'settings') {
@@ -1026,8 +1024,6 @@ class MenuApp {
             const optionEls = container ? container.querySelectorAll('.menu-option') : document.querySelectorAll('.menu-option');
             const el = optionEls && optionEls[this.currentIndex] ? optionEls[this.currentIndex] : null;
             selectedDomId = el && el.dataset ? el.dataset.id : null;
-            const opt = this.options[this.currentIndex];
-            console.log('[selectOption] currentMenu:', this.currentMenu, 'index:', this.currentIndex, 'domId:', selectedDomId, 'optId:', opt && opt.id);
         } catch {}
         
         // Handle Minesweeper game selections
@@ -1133,7 +1129,8 @@ class MenuApp {
                 return;
             }
             if (id === 'back') {
-                this.navigateBack();
+                // Always go to Main menu from Write
+                this.navigateTo('main');
                 return;
             }
         }
@@ -1142,6 +1139,11 @@ class MenuApp {
         if (this.currentMenu === 'saved-notes') {
             const option = this.options[this.currentIndex];
             if (!option) return;
+            if (option.id === 'back') {
+                // Always go back to Write menu, regardless of stack
+                this.navigateTo('write');
+                return;
+            }
             if (option.id === 'next-page') {
                 const totalPages = Math.max(1, Math.ceil(this.notes.length / this.notesPerPage));
                 this.notesPage = Math.min(totalPages, this.notesPage + 1);
@@ -1159,6 +1161,11 @@ class MenuApp {
         if (this.currentMenu === 'note-view') {
             const option = this.options[this.currentIndex];
             if (!option) return;
+            if (option.id === 'close') {
+                // Return to Saved notes list
+                this.navigateTo('saved-notes');
+                return;
+            }
             if (option.id === 'read-aloud') {
                 const note = this.notes.find(n => n.id === this.currentNoteId);
                 if (note) {
@@ -1184,6 +1191,7 @@ class MenuApp {
         
         if (option.id === 'back') {
             this.navigateBack();
+            return;
         } else if (option.id === 'decrease') {
             if (this.currentMenu === 'minesweeper-focus-area-size') {
                 this.decreaseFocusAreaSize();
@@ -1607,14 +1615,11 @@ class MenuApp {
     }
     
     navigateTo(menuId) {
-        try {
-            console.log('[navigateTo] request:', menuId, 'from:', this.currentMenu);
-        } catch {}
+        
         // Normalize aliases to concrete screens
         if (menuId === 'new-note') {
             menuId = 'write-tool';
         }
-        this.menuStack.push(this.currentMenu);
         this.currentMenu = menuId;
         this.renderMenu();
         this.resetBlinkState();
@@ -1622,9 +1627,7 @@ class MenuApp {
         this.pendingFirstItemWait = (this.currentMenu !== 'write');
         // Restart auto-scroll so the initial delay logic (with first-item wait) applies immediately
         this.startAutoScroll();
-        try {
-            console.log('[navigateTo] navigated to:', this.currentMenu);
-        } catch {}
+        
     }
     
     updateSettingsMenu() {
@@ -1776,30 +1779,34 @@ class MenuApp {
         }
     }
     
+    getBackMenu(current) {
+        const map = {
+            // Deterministic back routes
+            'write': 'main',
+            'saved-notes': 'write',
+            'note-view': 'saved-notes',
+            'write-tool': 'write',
+            'settings': 'main',
+            'scroll-speed': 'settings',
+            'blink-threshold': 'settings',
+            'blink-debounce': 'settings',
+            'first-item-wait': 'settings',
+            'games': 'main',
+            'minesweeper': 'games',
+            'minesweeper-settings': 'minesweeper',
+            'minesweeper-focus-area-size': 'minesweeper-settings',
+            'minesweeper-difficulty': 'minesweeper',
+            'minesweeper-board-size': 'minesweeper',
+            'debug': 'main',
+            'lock': 'main',
+        };
+        if (this.minesweeperMode) return 'minesweeper';
+        return map[current] || 'main';
+    }
+    
     navigateBack() {
-        if (this.minesweeperMode) {
-            // Exit game mode
-            this.minesweeperMode = false;
-            this.minesweeperGame = null;
-            this.selectedDifficulty = null;
-            this.selectedBoardSize = null;
-            this.navigateTo('main');
-            return;
-        }
-        
-        if (this.menuStack.length > 0) {
-            this.currentMenu = this.menuStack.pop();
-            this.renderMenu();
-        } else {
-            // If stack is empty, go to main menu
-            this.currentMenu = 'main';
-            this.renderMenu();
-        }
-        this.resetBlinkState();
-        // Apply first-item wait once after navigating back
-        this.pendingFirstItemWait = true;
-        // Ensure the new menu run starts its own auto-scroll cycle with initial delay
-        this.startAutoScroll();
+        const target = this.getBackMenu(this.currentMenu);
+        this.navigateTo(target);
     }
     
     startMinesweeperGame() {
