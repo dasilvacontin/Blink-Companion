@@ -944,8 +944,55 @@ class MenuApp {
         }
         
         this.updateHighlight();
+        this.attachClickHandlers();
     }
     
+    
+    attachClickHandlers() {
+        // Attach click/tap handlers to all menu options for easier testing
+        const container = document.getElementById('menu-options');
+        const optionEls = container ? container.querySelectorAll('.menu-option') : document.querySelectorAll('.menu-option');
+        
+        optionEls.forEach((el, domIndex) => {
+            // Skip disabled and non-selectable options
+            if (el.dataset.selectable === 'false' || el.dataset.disabled === 'true') {
+                return;
+            }
+            
+            // Skip writing tool keypad buttons - they already have click handlers
+            if (el.classList.contains('key-button')) {
+                // Just add cursor style
+                el.style.cursor = 'pointer';
+                return;
+            }
+            
+            // Use dataset.index if available, otherwise use DOM index
+            const optionIndex = el.dataset.index !== undefined ? parseInt(el.dataset.index, 10) : domIndex;
+            
+            // Check if element already has click handler attached
+            if (el.dataset.clickHandlerAttached === 'true') {
+                return;
+            }
+            
+            el.dataset.clickHandlerAttached = 'true';
+            
+            // Add click handler
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Set current index and highlight
+                this.currentIndex = optionIndex;
+                this.updateHighlight();
+                
+                // Trigger selection (same as blink selection)
+                this.selectOption();
+            });
+            
+            // Add cursor pointer style for better UX
+            el.style.cursor = 'pointer';
+        });
+    }
     
     updateHighlight() {
         // Prefer scoping to current menu options container
