@@ -26,7 +26,8 @@ const DEFAULT_BLINK_THRESHOLD = 1.0; // seconds
 
 class MenuApp {
     constructor() {
-        this.currentMenu = 'lock';
+        // Start with initial calibration screen - force users to calibrate first
+        this.currentMenu = 'initial-calibration';
         this.options = [];
         this.currentIndex = 0;
         this.scrollSpeed = DEFAULT_SCROLL_SPEED;
@@ -116,6 +117,8 @@ class MenuApp {
             this.currentMenu = 'main';
             this.isLocked = false;
         }
+        // Note: We no longer check shouldSkipLockscreen for initial calibration
+        // Everyone must calibrate first (forces first touch for iOS audio unlock)
         
         // Calibration state
         this.isCalibrating = false;
@@ -166,8 +169,11 @@ class MenuApp {
         
         // Initialize animalese.js for fallback TTS
         this.animaleseReady = false;
+        this.animaleseInstance = null;
         if (typeof Animalese !== 'undefined') {
-            this.animaleseReady = true;
+            // Initialize Animalese with the letters file
+            // The letters file URL should be 'lib/animalese.wav' or 'animalese.wav'
+            this.initAnimalese();
         }
     }
     
@@ -186,6 +192,43 @@ class MenuApp {
             } catch (err) {
                 console.error('Failed to initialize eSpeak-ng.js:', err);
             }
+        }
+    }
+    
+    initAnimalese() {
+        // animalese.js initialization
+        // Note: animalese.js needs the letters file (animalese.wav) to initialize
+        // Download from: https://github.com/Acedio/animalese.js
+        // Required files: animalese.js, riffwave.js, Blob.js, animalese.wav
+        if (typeof Animalese === 'undefined') {
+            return;
+        }
+        
+        try {
+            // Try different possible paths for the letters file
+            const possiblePaths = [
+                'lib/animalese.wav',
+                'animalese.wav',
+                './lib/animalese.wav',
+                './animalese.wav'
+            ];
+            
+            let lettersFile = null;
+            for (const path of possiblePaths) {
+                // For now, try the first path and log if it fails
+                lettersFile = path;
+                break;
+            }
+            
+            // Initialize Animalese with the letters file
+            this.animaleseInstance = new Animalese(lettersFile, () => {
+                // Callback when letters file is loaded
+                this.animaleseReady = true;
+                console.log('animalese.js ready');
+            });
+        } catch (err) {
+            console.error('Failed to initialize animalese.js:', err);
+            console.warn('Make sure animalese.wav is in the lib/ folder');
         }
     }
     
@@ -570,6 +613,105 @@ class MenuApp {
             return;
         }
         
+        // Special handling for initial calibration screen - shows only calibrate button
+        if (this.currentMenu === 'initial-calibration') {
+            // Always hide camera overlay
+            const cameraOverlay = document.getElementById('camera-overlay');
+            if (cameraOverlay) {
+                cameraOverlay.classList.add('hidden');
+            }
+            
+            // Stop auto-scroll
+            if (this.scrollInterval) {
+                clearInterval(this.scrollInterval);
+                this.scrollInterval = null;
+            }
+            
+            // Clear and setup initial calibration screen
+            const menuContainerEl = document.getElementById('menu-container');
+            if (menuContainerEl) {
+                menuContainerEl.innerHTML = '';
+                menuContainerEl.className = '';
+                menuContainerEl.style.cssText = '';
+                
+                // Title
+                const title = document.createElement('h1');
+                title.className = 'menu-title';
+                title.textContent = 'Welcome';
+                menuContainerEl.appendChild(title);
+                
+                // Calibrate button - this forces the first touch (important for iOS audio unlock)
+                const calibrateButton = document.createElement('button');
+                calibrateButton.className = 'calibrate-button';
+                calibrateButton.id = 'initial-calibrate-button';
+                calibrateButton.textContent = 'Calibrate blink recognition';
+                calibrateButton.style.cssText = 'margin: 40px auto; display: block; padding: 20px 40px; font-size: 1.2rem;';
+                
+                // Add click handler that triggers audio unlock and starts calibration
+                calibrateButton.addEventListener('click', (e) => {
+                    // Force audio unlock on first touch (iOS requires this)
+                    // Try to unlock audio context immediately
+                    const tryUnlockAndSpeak = () => {
+                        if (!this.audioContext) {
+                            // Audio context not created yet - create it now
+                            try {
+                                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                                if (AudioContextClass) {
+                                    this.audioContext = new AudioContextClass();
+                                }
+                            } catch (err) {
+                                console.error('Failed to create audio context:', err);
+                            }
+                        }
+                        
+                        if (this.audioContext) {
+                            if (this.audioContext.state === 'suspended') {
+                                this.audioContext.resume().then(() => {
+                                    this.audioUnlocked = true;
+                                    // After audio is unlocked, say "Open both eyes" using animalese
+                                    setTimeout(() => {
+                                        this.readAloudAnimalese('Open both eyes');
+                                    }, 300); // Small delay to ensure audio context is ready
+                                }).catch(() => {
+                                    // If resume fails, still try to speak after a delay
+                                    setTimeout(() => {
+                                        this.readAloudAnimalese('Open both eyes');
+                                    }, 500);
+                                });
+                            } else {
+                                this.audioUnlocked = true;
+                                // Say "Open both eyes" using animalese
+                                setTimeout(() => {
+                                    this.readAloudAnimalese('Open both eyes');
+                                }, 300);
+                            }
+                        } else {
+                            // Audio context creation failed, still try to speak (might work if already unlocked)
+                            setTimeout(() => {
+                                this.readAloudAnimalese('Open both eyes');
+                            }, 500);
+                        }
+                    };
+                    
+                    // Try to unlock and speak immediately
+                    tryUnlockAndSpeak();
+                    
+                    // Start calibration
+                    this.startCalibration();
+                });
+                
+                menuContainerEl.appendChild(calibrateButton);
+                
+                // Optional instruction text
+                const instruction = document.createElement('p');
+                instruction.style.cssText = 'text-align: center; margin: 20px 0; color: var(--text-secondary); font-size: 1rem; padding: 0 20px;';
+                instruction.textContent = 'Tap the button above to begin calibrating your blink detection.';
+                menuContainerEl.appendChild(instruction);
+            }
+            
+            return;
+        }
+        
         // Special handling for lock screen - use LockScreen component
         if (this.currentMenu === 'lock' || this.isLocked) {
             // Always hide camera overlay (never show video feed)
@@ -606,7 +748,7 @@ class MenuApp {
             // Start animation loop for lock screen progress
             this.startLockScreenAnimation();
             
-            // Add click handler for calibrate button
+            // Add click handler for calibrate button (on lock screen, calibration is optional)
             setTimeout(() => {
                 const calibrateButton = document.getElementById('calibrate-blink-button');
                 if (calibrateButton && !calibrateButton.hasAttribute('data-listener-added')) {
@@ -798,16 +940,18 @@ class MenuApp {
                 btn.appendChild(content); 
                 return btn;
             };
-            const readBtn = makeButton('Read aloud', 'read-aloud');
+            const readAloudBtn = makeButton('Read aloud (may not work)', 'read-aloud-webspeech');
+            const readAnimaleseBtn = makeButton('Read aloud (animalese)', 'read-aloud-animalese');
             const editBtn = makeButton('Edit', 'edit-note');
             const delBtn = makeButton('Delete', 'delete-note');
             const closeBtn = makeButton('Close', 'close');
-            buttons.appendChild(readBtn); buttons.appendChild(editBtn); buttons.appendChild(delBtn); buttons.appendChild(closeBtn);
+            buttons.appendChild(readAloudBtn); buttons.appendChild(readAnimaleseBtn); buttons.appendChild(editBtn); buttons.appendChild(delBtn); buttons.appendChild(closeBtn);
             wrapper.appendChild(buttons);
             menuOptions.appendChild(wrapper);
             // Map options for selection
             this.options = [
-                { id: 'read-aloud', title: 'Read aloud' },
+                { id: 'read-aloud-webspeech', title: 'Read aloud (may not work)' },
+                { id: 'read-aloud-animalese', title: 'Read aloud (animalese)' },
                 { id: 'edit-note', title: 'Edit' },
                 { id: 'delete-note', title: 'Delete' },
                 { id: 'close', title: 'Close' }
@@ -1072,11 +1216,16 @@ class MenuApp {
                 this.updateHighlight();
                 
                 // iOS fix: Handle read-aloud directly from click to preserve user gesture context
-                if (this.currentMenu === 'note-view' && el.dataset.id === 'read-aloud') {
+                if (this.currentMenu === 'note-view' && (el.dataset.id === 'read-aloud-webspeech' || el.dataset.id === 'read-aloud-animalese')) {
                     const note = this.notes.find(n => n.id === this.currentNoteId);
                     if (note) {
-                        // Call readAloud directly from click event to preserve gesture context
-                        this.readAloudFromClick(note.text, e);
+                        if (el.dataset.id === 'read-aloud-webspeech') {
+                            // Web Speech API
+                            this.readAloudFromClick(note.text, e);
+                        } else if (el.dataset.id === 'read-aloud-animalese') {
+                            // Animalese
+                            this.readAloudAnimalese(note.text);
+                        }
                         return;
                     }
                 }
@@ -1319,10 +1468,17 @@ class MenuApp {
                 this.navigateTo('saved-notes');
                 return;
             }
-            if (option.id === 'read-aloud') {
+            if (option.id === 'read-aloud-webspeech') {
                 const note = this.notes.find(n => n.id === this.currentNoteId);
                 if (note) {
-                    this.readAloud(note.text);
+                    this.readAloud(note.text); // Uses Web Speech API with fallbacks
+                }
+                return;
+            }
+            if (option.id === 'read-aloud-animalese') {
+                const note = this.notes.find(n => n.id === this.currentNoteId);
+                if (note) {
+                    this.readAloudAnimalese(note.text); // Uses animalese.js directly
                 }
                 return;
             }
@@ -2048,44 +2204,33 @@ class MenuApp {
                 return;
             }
             
-            if (typeof Animalese === 'undefined') {
-                console.warn('animalese.js not loaded - include lib/animalese.js in HTML');
+            if (!this.animaleseReady || !this.animaleseInstance) {
+                console.warn('animalese.js not ready - waiting for initialization...');
+                // If not ready yet, wait a bit and try again
+                setTimeout(() => {
+                    if (this.animaleseReady && this.animaleseInstance) {
+                        this.readAloudAnimalese(text);
+                    }
+                }, 500);
                 return;
             }
             
-            // animalese.js API: new Animalese(text, [pitch])
-            // Generates Animal Crossing-style speech sounds
-            // Returns an object with audio data or generates audio automatically
+            // Generate audio using animalese.js
+            // API: animaleseInstance.Animalese(script, shorten, pitch)
+            // - script: text to speak
+            // - shorten: boolean, whether to shorten words
+            // - pitch: number, pitch multiplier (default 1.0)
+            // Returns: RIFFWAVE object with dataURI property
             try {
-                // animalese.js API patterns:
-                // 1. new Animalese(text, pitch) - returns instance with audio property
-                // 2. Animalese(text, pitch) - generates and returns audio data
-                let audioData;
+                const wave = this.animaleseInstance.Animalese(text, false, 1.0);
                 
-                if (typeof Animalese === 'function') {
-                    // Try pattern 1: new Animalese(text, pitch)
-                    try {
-                        const animalese = new Animalese(text, 1.0);
-                        if (animalese.audio) {
-                            audioData = animalese.audio;
-                        } else if (animalese.buffer) {
-                            audioData = animalese.buffer;
-                        } else {
-                            // Try pattern 2: direct function call
-                            audioData = Animalese(text, 1.0);
-                        }
-                    } catch (err) {
-                        // Try pattern 2: direct function call
-                        audioData = Animalese(text, 1.0);
-                    }
+                if (!wave || !wave.dataURI) {
+                    console.warn('animalese.js did not generate valid audio data');
+                    return;
                 }
                 
-                // Play the audio through Web Audio API
-                if (audioData) {
-                    this.playAnimaleseAudio(audioData);
-                } else {
-                    console.warn('animalese.js did not generate audio data');
-                }
+                // Play the audio using the dataURI
+                this.playAnimaleseAudio(wave.dataURI);
             } catch (err) {
                 console.error('animalese.js generation error:', err);
                 throw err; // Re-throw so caller knows it failed
@@ -2097,14 +2242,14 @@ class MenuApp {
     
     playAnimaleseAudio(audioData) {
         // Play animalese audio through Web Audio API
-        // audioData can be a DataURI string, ArrayBuffer, or Blob
+        // audioData should be a DataURI string (from RIFFWAVE.dataURI)
         try {
             if (!this.audioContext || !this.audioUnlocked) {
                 console.warn('Cannot play audio - context not unlocked');
                 return;
             }
             
-            // Handle different audio data formats
+            // audioData should be a DataURI string like "data:audio/wav;base64,..."
             let audioBufferPromise;
             
             if (typeof audioData === 'string' && audioData.startsWith('data:')) {
@@ -2125,9 +2270,8 @@ class MenuApp {
                     this.audioContext.decodeAudioData(buffer)
                 );
             } else {
-                // Try to convert to ArrayBuffer
-                const buffer = audioData.buffer || audioData;
-                audioBufferPromise = this.audioContext.decodeAudioData(buffer);
+                console.error('Invalid audio data format:', typeof audioData);
+                return;
             }
             
             // Play decoded audio
@@ -4700,7 +4844,20 @@ class MenuApp {
         const totalSteps = 5;
         
         if (this.calibrationStep < totalSteps) {
-            // Move to next step
+            // Move to next step - say the instruction using animalese
+            const stepNames = [
+                'Open both eyes',
+                'Close your left eye',
+                'Open your left eye',
+                'Close your right eye',
+                'Open your right eye'
+            ];
+            const nextStepName = stepNames[this.calibrationStep];
+            if (nextStepName) {
+                // Use animalese to say the next instruction
+                this.readAloudAnimalese(nextStepName);
+            }
+            // Render the next step screen
             this.renderCalibrationScreen();
         } else {
             // All steps complete - calculate threshold
@@ -4787,8 +4944,24 @@ class MenuApp {
         // Save the thresholds
         this.saveSettings();
         
-        // Show completion screen
-        this.showCalibrationComplete();
+        // Stop calibrating before navigating
+        this.isCalibrating = false;
+        if (this.calibrationTimer) {
+            clearTimeout(this.calibrationTimer);
+            this.calibrationTimer = null;
+        }
+        
+        // If this was the initial calibration, go directly to lock screen
+        // Otherwise, show completion screen (for re-calibration from settings)
+        if (this.currentMenu === 'initial-calibration') {
+            // Navigate to lock screen
+            this.currentMenu = 'lock';
+            this.isLocked = true; // Ensure app is locked
+            this.renderMenu();
+        } else {
+            // Show completion screen for re-calibration
+            this.showCalibrationComplete();
+        }
     }
     
     calculateAverage(dataArray) {
