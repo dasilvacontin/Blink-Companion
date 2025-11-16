@@ -530,11 +530,12 @@ class MenuApp {
                 keypad.appendChild(rowEl);
             });
             
-            // Exit key row (same visual size style)
-            const exitRow = document.createElement('div');
-            exitRow.className = 'keypad-row';
-            exitRow.appendChild(createKey('exit', '', 'exit', ' key-button-full'));
-            keypad.appendChild(exitRow);
+            // Bottom row: delete and exit (regular-size buttons)
+            const bottomRow = document.createElement('div');
+            bottomRow.className = 'keypad-row';
+            bottomRow.appendChild(createKey('delete', '', 'delete'));
+            bottomRow.appendChild(createKey('exit', '', 'exit'));
+            keypad.appendChild(bottomRow);
             
             writingWrapper.appendChild(keypad);
             menuOptions.appendChild(writingWrapper);
@@ -799,6 +800,16 @@ class MenuApp {
             if (!option) return;
             if (option.id === 'exit') {
                 this.navigateBack();
+                return;
+            } else if (option.id === 'delete') {
+                const textArea = document.getElementById('writing-textarea');
+                if (textArea && textArea.value.length > 0) {
+                    textArea.value = textArea.value.slice(0, -1);
+                    textArea.focus();
+                    textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+                }
+                this.currentIndex = 0;
+                this.updateHighlight();
                 return;
             }
             const textArea = document.getElementById('writing-textarea');
@@ -2073,12 +2084,26 @@ class MenuApp {
             const id = optionEl.dataset.id;
             const progressFill = optionEl.querySelector('.progress-fill');
             
+            // Space: immediately insert a space and finish
+            if (id === 'key-space' || id === 'space') {
+                const textArea = document.getElementById('writing-textarea');
+                if (textArea) {
+                    textArea.value += ' ';
+                    textArea.focus();
+                    textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+                }
+                this.cancelSelection();
+                this.currentIndex = 0;
+                this.updateHighlight();
+                return;
+            }
+            
             // Determine character sequence for this key
             let characters = [];
-            if (id === 'space') {
-                characters = [' '];
-            } else if (id === 'exit') {
+            if (id === 'exit') {
                 characters = []; // exit doesn't type characters
+            } else if (id === 'delete') {
+                characters = []; // handled specially below
             } else {
                 const titleEl = optionEl.querySelector('.menu-option-title');
                 const labelText = titleEl ? titleEl.textContent : '';
@@ -2094,6 +2119,47 @@ class MenuApp {
                 totalSteps = Math.max(totalSteps, Math.ceil(2.0 / stepDuration)); // 4 steps of 0.5s each
             }
             const totalDuration = totalSteps * stepDuration;
+            
+            // Special handling for delete key: start acting after blinkThreshold; then every 0.5s delete another char
+            if (id === 'delete') {
+                this.isSelecting = true;
+                this.selectionStartTime = Date.now();
+                let nextDeleteTime = this.blinkThreshold; // first deletion after one threshold hold
+                const deleteStep = this.blinkThreshold; // subsequent deletions every threshold duration
+                
+                const animateDelete = () => {
+                    if (!this.isSelecting) {
+                        this.cancelSelection();
+                        return;
+                    }
+                    const elapsed = (Date.now() - this.selectionStartTime) / 1000;
+                    
+                    // Update progress fill: ramp up to threshold, then loop every 0.5s
+                    if (progressFill) {
+                        if (elapsed < this.blinkThreshold) {
+                            progressFill.style.width = `${Math.min(elapsed / this.blinkThreshold, 1) * 100}%`;
+                        } else {
+                            const cycle = (elapsed - this.blinkThreshold) % deleteStep;
+                            progressFill.style.width = `${(cycle / deleteStep) * 100}%`;
+                        }
+                    }
+                    
+                    if (elapsed >= nextDeleteTime) {
+                        // Delete one character (if any)
+                        if (textArea && textArea.value.length > 0) {
+                            textArea.value = textArea.value.slice(0, -1);
+                            textArea.focus();
+                            textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+                        }
+                        nextDeleteTime += deleteStep;
+                    }
+                    
+                    this.selectionAnimationFrame = requestAnimationFrame(animateDelete);
+                };
+                
+                this.selectionAnimationFrame = requestAnimationFrame(animateDelete);
+                return;
+            }
             
             // Insert first character immediately (if any)
             let insertedStartIndex = null;
