@@ -427,6 +427,115 @@ class MenuApp {
             return;
         }
         
+        // Special handling for Writing Tool (simplified T9 keypad)
+        if (this.currentMenu === 'write') {
+            // Update title
+            if (menuTitleEl) {
+                // Remove title space entirely for writing tool
+                const emptyTitle = document.createElement('div');
+                emptyTitle.id = 'menu-title';
+                menuTitleEl.replaceWith(emptyTitle);
+            }
+            
+            // Clear options area
+            menuOptions.innerHTML = '';
+            
+            // Wrapper
+            const writingWrapper = document.createElement('div');
+            writingWrapper.className = 'writing-tool';
+            
+            // Large text area
+            const textArea = document.createElement('textarea');
+            textArea.className = 'writing-textarea';
+            textArea.id = 'writing-textarea';
+            textArea.setAttribute('aria-label', 'Writing area');
+            textArea.placeholder = 'Start typing...';
+            writingWrapper.appendChild(textArea);
+            
+            // Keypad container
+            const keypad = document.createElement('div');
+            keypad.className = 'writing-keypad';
+            
+            // Prepare options mapping for blink navigation
+            const optionsMap = [];
+            
+            // Helper to create a key button (selectable)
+            const createKey = (label, output, id, extraClass = '') => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `menu-option key-button${extraClass ? ' ' + extraClass : ''}`;
+                btn.dataset.id = id;
+                
+                // Progress fill
+                const progressFill = document.createElement('div');
+                progressFill.className = 'progress-fill';
+                progressFill.style.width = '0%';
+                
+                // Content
+                const content = document.createElement('div');
+                content.className = 'menu-option-content';
+                const titleEl = document.createElement('div');
+                titleEl.className = 'menu-option-title';
+                titleEl.textContent = label;
+                content.appendChild(titleEl);
+                
+                btn.appendChild(progressFill);
+                btn.appendChild(content);
+                
+                // Click support (for mouse/touch)
+                btn.addEventListener('click', () => {
+                    if (output === ' ') {
+                        textArea.value += ' ';
+                    } else {
+                        textArea.value += output;
+                    }
+                    // Keep cursor at end and focus
+                    textArea.focus();
+                    textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+                });
+                
+                // Add to options list for blink selection
+                optionsMap.push({ id, title: label, subtitle: '', output });
+                return btn;
+            };
+            
+            // Layout rows (omit suggestion row and bottom delete/action/exit)
+            const rows = [
+                [ ['space', ' ', 'key-space'], ['abc2', 'a', 'key-a'], ['def3', 'd', 'key-d'] ],
+                [ ['ghi4', 'g', 'key-g'], ['jkl5', 'j', 'key-j'], ['mno6', 'm', 'key-m'] ],
+                [ ['pqrs7', 'p', 'key-p'], ['tuv8', 't', 'key-t'], ['wxyz9', 'w', 'key-w'] ]
+            ];
+            
+            rows.forEach(row => {
+                const rowEl = document.createElement('div');
+                rowEl.className = 'keypad-row';
+                row.forEach(([label, out, id]) => {
+                    rowEl.appendChild(createKey(label, out, id));
+                });
+                keypad.appendChild(rowEl);
+            });
+            
+            // Exit key row (same visual size style)
+            const exitRow = document.createElement('div');
+            exitRow.className = 'keypad-row';
+            exitRow.appendChild(createKey('exit', '', 'exit', ' key-button-full'));
+            keypad.appendChild(exitRow);
+            
+            writingWrapper.appendChild(keypad);
+            menuOptions.appendChild(writingWrapper);
+            
+            // Options array contains all keys including exit so blink navigation cycles through them
+            this.options = optionsMap;
+            // Assign dataset.index to each key in DOM order
+            const optionEls = menuOptions.querySelectorAll('.menu-option');
+            optionEls.forEach((el, index) => {
+                el.dataset.index = index;
+            });
+            this.currentIndex = 0; // start from first key
+            this.updateHighlight();
+            return;
+        }
+        
         // Special handling for settings detail pages - use SettingsDetail component
         if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size') {
             let currentValue;
@@ -664,6 +773,27 @@ class MenuApp {
         // Handle Minesweeper game selections
         if (this.minesweeperMode) {
             this.handleGameSelection();
+            return;
+        }
+        
+        // Handle Writing Tool selections
+        if (this.currentMenu === 'write') {
+            const option = this.options[this.currentIndex];
+            if (!option) return;
+            if (option.id === 'exit') {
+                this.navigateBack();
+                return;
+            }
+            const textArea = document.getElementById('writing-textarea');
+            if (textArea) {
+                const output = option.output || '';
+                textArea.value += output;
+                textArea.focus();
+                textArea.selectionStart = textArea.selectionEnd = textArea.value.length;
+            }
+            // After triggering a key, reset cursor to the first option
+            this.currentIndex = 0;
+            this.updateHighlight();
             return;
         }
         
