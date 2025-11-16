@@ -76,7 +76,8 @@ class MenuApp {
         this.rightEyeClosed = false;
         this.eyesWereOpen = true; // Track if eyes were open before starting selection
         this.eyeClosedStartTime = null; // When eyes first detected as closed (for debounce)
-        this.BLINK_DEBOUNCE_TIME = 100; // Milliseconds eyes must be closed before registering as blink start
+        this.BLINK_DEBOUNCE_TIME = 200; // Milliseconds eyes must be closed before registering as blink start (configurable)
+        this.blinkDebounceSeconds = 0.2; // UI setting in seconds; mirrored to BLINK_DEBOUNCE_TIME
         
         // SOS Pattern state (for lock screen)
         this.sosPattern = [0.2, 0.2, 0.2, 1.0, 1.0, 1.0, 0.2, 0.2, 0.2]; // short, short, short, long, long, long, short, short, short
@@ -209,6 +210,7 @@ class MenuApp {
         const savedEarThresholdLeft = localStorage.getItem('earThresholdLeft');
         const savedEarThresholdRight = localStorage.getItem('earThresholdRight');
         const savedEarThreshold = localStorage.getItem('earThreshold'); // Legacy support
+        const savedBlinkDebounceSeconds = localStorage.getItem('blinkDebounceSeconds');
         
         if (savedScrollSpeed) {
             this.scrollSpeed = parseFloat(savedScrollSpeed);
@@ -231,6 +233,15 @@ class MenuApp {
             this.earThresholdLeft = legacyThreshold;
             this.earThresholdRight = legacyThreshold;
         }
+        if (savedBlinkDebounceSeconds) {
+            this.blinkDebounceSeconds = parseFloat(savedBlinkDebounceSeconds);
+            if (!isNaN(this.blinkDebounceSeconds) && this.blinkDebounceSeconds > 0) {
+                this.BLINK_DEBOUNCE_TIME = Math.round(this.blinkDebounceSeconds * 1000);
+            }
+        } else {
+            // Ensure ms mirror is in sync with default seconds
+            this.BLINK_DEBOUNCE_TIME = Math.round(this.blinkDebounceSeconds * 1000);
+        }
     }
     
     saveSettings() {
@@ -239,6 +250,7 @@ class MenuApp {
         localStorage.setItem('focusAreaSize', this.focusAreaSize.toString());
         localStorage.setItem('earThresholdLeft', this.earThresholdLeft.toString());
         localStorage.setItem('earThresholdRight', this.earThresholdRight.toString());
+        localStorage.setItem('blinkDebounceSeconds', this.blinkDebounceSeconds.toString());
     }
     
     initializeMenus() {
@@ -290,6 +302,7 @@ class MenuApp {
             settings: [
                 { id: 'back', title: 'Back', subtitle: '' },
                 { id: 'scroll-speed', title: 'Scroll Speed', subtitle: 'Amount of time the cursor spends on each option', value: '' },
+                { id: 'blink-debounce', title: 'Blink debounce', subtitle: 'Minimum time eyes must be closed to start a blink', value: '' },
                 { id: 'blink-threshold', title: 'Blink threshold', subtitle: 'Amount of time a blink must last to be recognised as a blink.', value: '' }
             ],
             debug: [
@@ -347,6 +360,8 @@ class MenuApp {
             titleText = 'Settings / Scroll Speed';
         } else if (this.currentMenu === 'blink-threshold') {
             titleText = 'Settings / Blink threshold';
+        } else if (this.currentMenu === 'blink-debounce') {
+            titleText = 'Settings / Blink debounce';
         } else if (this.currentMenu === 'minesweeper-focus-area-size') {
             titleText = 'Minesweeper Settings / Focus Area Size';
         } else if (this.currentMenu === 'minesweeper-difficulty') {
@@ -537,12 +552,14 @@ class MenuApp {
         }
         
         // Special handling for settings detail pages - use SettingsDetail component
-        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size') {
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size' || this.currentMenu === 'blink-debounce') {
             let currentValue;
             if (this.currentMenu === 'scroll-speed') {
                 currentValue = this.scrollSpeed;
             } else if (this.currentMenu === 'blink-threshold') {
                 currentValue = this.blinkThreshold;
+            } else if (this.currentMenu === 'blink-debounce') {
+                currentValue = this.blinkDebounceSeconds;
             } else if (this.currentMenu === 'minesweeper-focus-area-size') {
                 currentValue = this.focusAreaSize;
             }
@@ -1124,6 +1141,12 @@ class MenuApp {
             this.saveSettings();
             this.updateValueDisplay();
             this.updateDisabledStates();
+        } else if (this.currentMenu === 'blink-debounce') {
+            this.blinkDebounceSeconds = Math.max(0.1, this.blinkDebounceSeconds - 0.1);
+            this.BLINK_DEBOUNCE_TIME = Math.round(this.blinkDebounceSeconds * 1000);
+            this.saveSettings();
+            this.updateValueDisplay();
+            this.updateDisabledStates();
         }
         // Update settings menu values if we're going back to settings
         this.updateSettingsMenu();
@@ -1141,6 +1164,12 @@ class MenuApp {
             this.saveSettings();
             this.updateValueDisplay();
             this.updateDisabledStates();
+        } else if (this.currentMenu === 'blink-debounce') {
+            this.blinkDebounceSeconds += 0.1;
+            this.BLINK_DEBOUNCE_TIME = Math.round(this.blinkDebounceSeconds * 1000);
+            this.saveSettings();
+            this.updateValueDisplay();
+            this.updateDisabledStates();
         }
         // Update settings menu values if we're going back to settings
         this.updateSettingsMenu();
@@ -1148,12 +1177,14 @@ class MenuApp {
     
     updateValueDisplay() {
         // Update value display for settings detail pages without re-rendering entire menu
-        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size') {
+        if (this.currentMenu === 'scroll-speed' || this.currentMenu === 'blink-threshold' || this.currentMenu === 'minesweeper-focus-area-size' || this.currentMenu === 'blink-debounce') {
             let currentValue;
             if (this.currentMenu === 'scroll-speed') {
                 currentValue = this.scrollSpeed;
             } else if (this.currentMenu === 'blink-threshold') {
                 currentValue = this.blinkThreshold;
+            } else if (this.currentMenu === 'blink-debounce') {
+                currentValue = this.blinkDebounceSeconds;
             } else if (this.currentMenu === 'minesweeper-focus-area-size') {
                 currentValue = this.focusAreaSize;
             }
@@ -1197,11 +1228,15 @@ class MenuApp {
             // Find options by ID instead of index (since Back is now first)
             const scrollSpeedOption = this.menus.settings.find(opt => opt.id === 'scroll-speed');
             const blinkThresholdOption = this.menus.settings.find(opt => opt.id === 'blink-threshold');
+            const blinkDebounceOption = this.menus.settings.find(opt => opt.id === 'blink-debounce');
             if (scrollSpeedOption) {
                 scrollSpeedOption.value = `${this.scrollSpeed.toFixed(1)}s`;
             }
             if (blinkThresholdOption) {
                 blinkThresholdOption.value = `${this.blinkThreshold.toFixed(1)}s`;
+            }
+            if (blinkDebounceOption) {
+                blinkDebounceOption.value = `${this.blinkDebounceSeconds.toFixed(1)}s`;
             }
         }
     }
@@ -1238,7 +1273,8 @@ class MenuApp {
     updateDisabledStates() {
         if (this.currentMenu === 'minesweeper-focus-area-size' || 
             this.currentMenu === 'scroll-speed' || 
-            this.currentMenu === 'blink-threshold') {
+            this.currentMenu === 'blink-threshold' ||
+            this.currentMenu === 'blink-debounce') {
             const menuOptions = document.getElementById('menu-options');
             if (!menuOptions) return;
             
@@ -1249,6 +1285,8 @@ class MenuApp {
                 currentValue = this.scrollSpeed;
             } else if (this.currentMenu === 'blink-threshold') {
                 currentValue = this.blinkThreshold;
+            } else if (this.currentMenu === 'blink-debounce') {
+                currentValue = this.blinkDebounceSeconds;
             }
             
             // Update decrease button

@@ -26,15 +26,15 @@ export function createSettingsOption({ title, subtitle, value, highlighted = fal
   subtitleEl.textContent = subtitle;
   
   const valueEl = document.createElement('div');
-  valueEl.className = 'menu-option-value';
+  valueEl.className = 'menu-option-value menu-option-value-right';
   valueEl.textContent = value;
   
   // Order: title, subtitle, value (value under subtitle)
   content.appendChild(titleEl);
   content.appendChild(subtitleEl);
-  content.appendChild(valueEl);
   option.appendChild(progressFill);
   option.appendChild(content);
+  option.appendChild(valueEl);
   
   return option;
 }

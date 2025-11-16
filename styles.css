@@ -114,6 +114,15 @@ body {
     font-weight: normal;
 }
 
+.menu-option-value-right {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-top: 0;
+    text-align: right;
+}
+
 /* Progress indicator - fills from left to right */
 .progress-fill {
     position: absolute;
