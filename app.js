@@ -139,6 +139,16 @@ class MenuApp {
         this.renderMenu();
         this.startAutoScroll();
         this.waitForMediaPipe();
+        
+        // Preload TTS voices for iOS compatibility (must be done early)
+        if ('speechSynthesis' in window) {
+            // Wake up speech synthesis on iOS by calling getVoices()
+            try {
+                window.speechSynthesis.getVoices();
+                // Preload voices asynchronously
+                this.ensureTTSReady().catch(() => {});
+            } catch (e) {}
+        }
     }
     
     isDebugMode() {
@@ -1628,6 +1638,10 @@ class MenuApp {
         // Restart auto-scroll so the initial delay logic (with first-item wait) applies immediately
         this.startAutoScroll();
         
+        // Preload voices when navigating to note-view (for read aloud functionality)
+        if (menuId === 'note-view' && 'speechSynthesis' in window) {
+            this.ensureTTSReady().catch(() => {});
+        }
     }
     
     updateSettingsMenu() {
@@ -1677,16 +1691,33 @@ class MenuApp {
                 this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
             }
             
-            // Ensure voices are available (Safari/iOS often needs voiceschanged or a delay)
-            await this.ensureTTSReady();
-            
+            // iOS Safari requires speak() to be called synchronously from user gesture
+            // So we call speak() immediately without awaiting, then ensure voices in parallel
             const u = new SpeechSynthesisUtterance(text);
-            // Pick a reasonable English voice when available (Samantha on iOS usually)
-            const voice = this.getPreferredVoice();
-            if (voice) u.voice = voice;
             u.rate = 1.0;
             u.pitch = 1.0;
-            u.lang = (voice && voice.lang) ? voice.lang : 'en-US';
+            u.lang = 'en-US';
+            
+            // Try to get a voice synchronously if available, otherwise set it asynchronously
+            const synth = window.speechSynthesis;
+            let voices = synth.getVoices();
+            if (voices.length > 0) {
+                this.ttsVoices = voices;
+                const voice = this.getPreferredVoice();
+                if (voice) u.voice = voice;
+                u.lang = (voice && voice.lang) ? voice.lang : 'en-US';
+            } else {
+                // Voices not loaded yet - set up async loading but speak immediately anyway
+                // iOS will use default voice if voice property isn't set
+                this.ensureTTSReady().then(() => {
+                    // If still speaking, update voice (though this may not work mid-speech)
+                    const currentVoices = synth.getVoices();
+                    if (currentVoices.length > 0 && u && synth.speaking) {
+                        // Voice will be used for next call
+                        this.ttsVoices = currentVoices;
+                    }
+                }).catch(() => {});
+            }
             
             // iOS WebKit resume workaround: periodically call resume() while speaking
             let resumeTimer = null;
@@ -1694,10 +1725,27 @@ class MenuApp {
                 resumeTimer = setInterval(() => {
                     try { window.speechSynthesis.resume(); } catch {}
                 }, 200);
-                u.onend = u.onerror = () => { if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; } };
+                const cleanup = () => {
+                    if (resumeTimer) {
+                        clearInterval(resumeTimer);
+                        resumeTimer = null;
+                    }
+                };
+                u.onend = cleanup;
+                u.onerror = cleanup;
             }
             
+            // Cancel any ongoing speech
             window.speechSynthesis.cancel();
+            
+            // iOS Safari quirk: call getVoices() to wake up the API before speaking
+            if (this.isIOS) {
+                try {
+                    synth.getVoices();
+                } catch {}
+            }
+            
+            // Speak immediately (synchronously for iOS)
             window.speechSynthesis.speak(u);
         } catch {}
     }
