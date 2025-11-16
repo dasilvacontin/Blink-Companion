@@ -1562,8 +1562,8 @@ class MenuApp {
             existingContainer.replaceWith(menuContainer);
         }
         
-        // Navigate to minesweeper menu (not games menu)
-        this.currentMenu = 'minesweeper';
+        // Navigate to main menu (not games menu)
+        this.currentMenu = 'main';
         this.currentIndex = 0;
         this.renderMenu();
         this.resetBlinkState();
@@ -1959,7 +1959,7 @@ class MenuApp {
             'blink-debounce': 'settings',
             'first-item-wait': 'settings',
             'games': 'main',
-            'minesweeper': 'games',
+            'minesweeper': 'main',
             'minesweeper-settings': 'minesweeper',
             'minesweeper-focus-area-size': 'minesweeper-settings',
             'minesweeper-difficulty': 'minesweeper',
@@ -1967,7 +1967,7 @@ class MenuApp {
             'debug': 'main',
             'lock': 'main',
         };
-        if (this.minesweeperMode) return 'minesweeper';
+        if (this.minesweeperMode) return 'main';
         return map[current] || 'main';
     }
     
