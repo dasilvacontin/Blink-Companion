@@ -149,6 +149,45 @@ class MenuApp {
                 this.ensureTTSReady().catch(() => {});
             } catch (e) {}
         }
+        
+        // iOS audio unlock - trigger silent utterance on first user interaction
+        this.audioUnlocked = false;
+        this.unlockAudioOnce();
+    }
+    
+    unlockAudioOnce() {
+        // iOS requires user interaction to unlock audio
+        // Trigger a silent utterance on first touch/click to unlock speech synthesis
+        // This is a workaround that may enable subsequent programmatic calls
+        if (this.audioUnlocked || !('speechSynthesis' in window)) return;
+        
+        const unlock = () => {
+            if (this.audioUnlocked) return;
+            
+            try {
+                // Create silent utterance to unlock audio
+                const silentUtterance = new SpeechSynthesisUtterance(' ');
+                silentUtterance.volume = 0;
+                silentUtterance.rate = 1.0;
+                silentUtterance.pitch = 1.0;
+                
+                // Cancel any existing speech first
+                window.speechSynthesis.cancel();
+                
+                // Speak silently to unlock audio
+                window.speechSynthesis.speak(silentUtterance);
+                
+                // Mark as unlocked
+                this.audioUnlocked = true;
+            } catch (err) {
+                console.error('Failed to unlock audio:', err);
+            }
+        };
+        
+        // Listen for first user interaction (touch or click)
+        // Using capture phase and once to ensure it fires early
+        document.addEventListener('touchstart', unlock, { once: true, capture: true, passive: true });
+        document.addEventListener('click', unlock, { once: true, capture: true });
     }
     
     isDebugMode() {
@@ -985,6 +1024,16 @@ class MenuApp {
                 this.currentIndex = optionIndex;
                 this.updateHighlight();
                 
+                // iOS fix: Handle read-aloud directly from click to preserve user gesture context
+                if (this.currentMenu === 'note-view' && el.dataset.id === 'read-aloud') {
+                    const note = this.notes.find(n => n.id === this.currentNoteId);
+                    if (note) {
+                        // Call readAloud directly from click event to preserve gesture context
+                        this.readAloudFromClick(note.text, e);
+                        return;
+                    }
+                }
+                
                 // Trigger selection (same as blink selection)
                 this.selectOption();
             });
@@ -1730,6 +1779,14 @@ class MenuApp {
     async readAloud(text) {
         // Piper WASM placeholder: if a Piper integration is provided, call it here.
         // Robust Web Speech API fallback with iOS guards
+        // 
+        // IMPORTANT iOS LIMITATION:
+        // iOS requires speech synthesis to be triggered from a direct user gesture (tap/click).
+        // Blink-based interactions do NOT count as user gestures, so programmatic calls may fail.
+        // We've implemented an "unlock" pattern that triggers a silent utterance on first touch,
+        // but this may not be sufficient - iOS may still require each speak() call to be within
+        // a gesture context. This is a fundamental iOS security limitation with no reliable workaround
+        // without native app development or requiring users to manually enable audio permissions.
         try {
             if (!('speechSynthesis' in window)) return;
             
