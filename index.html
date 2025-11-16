@@ -33,7 +33,7 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div id="version">v1.1</div>
+    <div id="version">v1.4</div>
     <div id="app">
         <!-- Menu container -->
         <div id="menu-container">
@@ -57,6 +57,22 @@
     
     <!-- Confetti.js - Using canvas-confetti for better compatibility -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    
+    <!-- animalese.js for fallback TTS (when Web Speech API is not available or doesn't work) -->
+    <!-- Downloads from: https://github.com/Acedio/animalese.js -->
+    <script src="lib/Blob.js"></script>
+    <script src="lib/riffwave.js"></script>
+    <script src="lib/animalese.js"></script>
+    
+    <!-- eSpeak-ng.js for mobile TTS fallback (optional - only needed for mobile devices) -->
+    <!-- To enable eSpeak-ng.js on mobile: -->
+    <!-- 1. Download files from: https://steveseguin.github.io/espeakng.js/ -->
+    <!-- 2. Required files: espeakng-simple.js, espeakng.worker.js, espeakng.worker.data -->
+    <!-- 3. Place them in lib/ folder -->
+    <!-- 4. Uncomment the following lines: -->
+    <!--
+    <script src="lib/espeakng-simple.js"></script>
+    -->
     
     <script type="module" src="app.js"></script>
 </body>

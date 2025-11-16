@@ -150,35 +150,82 @@ class MenuApp {
             } catch (e) {}
         }
         
-        // iOS audio unlock - trigger silent utterance on first user interaction
+        // Audio unlock - use Web Audio API to unlock audio for programmatic playback
         this.audioUnlocked = false;
+        this.audioContext = null;
+        this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         this.unlockAudioOnce();
+        
+        // Initialize eSpeak-ng.js for mobile fallback if needed
+        this.espeakJsReady = false;
+        this.espeakTTS = null;
+        if (this.isMobile && typeof SimpleTTS !== 'undefined') {
+            this.initESpeakJS();
+        }
+        
+        // Initialize animalese.js for fallback TTS
+        this.animaleseReady = false;
+        if (typeof Animalese !== 'undefined') {
+            this.animaleseReady = true;
+        }
+    }
+    
+    initESpeakJS() {
+        // eSpeak-ng.js initialization using SimpleTTS class
+        // Note: eSpeak-ng.js files need to be included in HTML (see index.html)
+        // Download from: https://steveseguin.github.io/espeakng.js/
+        // Required files: espeakng-simple.js, espeakng.worker.js, espeakng.worker.data
+        if (typeof SimpleTTS !== 'undefined') {
+            try {
+                this.espeakTTS = new SimpleTTS();
+                this.espeakTTS.onReady(() => {
+                    this.espeakJsReady = true;
+                    console.log('eSpeak-ng.js ready');
+                });
+            } catch (err) {
+                console.error('Failed to initialize eSpeak-ng.js:', err);
+            }
+        }
     }
     
     unlockAudioOnce() {
-        // iOS requires user interaction to unlock audio
-        // Trigger a silent utterance on first touch/click to unlock speech synthesis
-        // This is a workaround that may enable subsequent programmatic calls
-        if (this.audioUnlocked || !('speechSynthesis' in window)) return;
+        // Unlock Web Audio API with first user interaction
+        // This allows programmatic audio playback after unlock
+        if (this.audioUnlocked) return;
         
         const unlock = () => {
             if (this.audioUnlocked) return;
             
             try {
-                // Create silent utterance to unlock audio
-                const silentUtterance = new SpeechSynthesisUtterance(' ');
-                silentUtterance.volume = 0;
-                silentUtterance.rate = 1.0;
-                silentUtterance.pitch = 1.0;
+                // Create Web Audio API context
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextClass) {
+                    console.warn('Web Audio API not supported');
+                    return;
+                }
                 
-                // Cancel any existing speech first
-                window.speechSynthesis.cancel();
+                this.audioContext = new AudioContextClass();
                 
-                // Speak silently to unlock audio
-                window.speechSynthesis.speak(silentUtterance);
-                
-                // Mark as unlocked
-                this.audioUnlocked = true;
+                // Unlock audio context by resuming it (iOS requires this)
+                if (this.audioContext.state === 'suspended') {
+                    this.audioContext.resume().then(() => {
+                        // Play a silent sound to unlock audio
+                        const buffer = this.audioContext.createBuffer(1, 1, 22050);
+                        const source = this.audioContext.createBufferSource();
+                        source.buffer = buffer;
+                        source.connect(this.audioContext.destination);
+                        source.start(0);
+                        
+                        this.audioUnlocked = true;
+                        console.log('Audio context unlocked');
+                    }).catch(err => {
+                        console.error('Failed to unlock audio context:', err);
+                    });
+                } else {
+                    // Already running
+                    this.audioUnlocked = true;
+                }
             } catch (err) {
                 console.error('Failed to unlock audio:', err);
             }
@@ -1777,81 +1824,399 @@ class MenuApp {
     }
     
     async readAloud(text) {
-        // Piper WASM placeholder: if a Piper integration is provided, call it here.
-        // Robust Web Speech API fallback with iOS guards
-        // 
-        // IMPORTANT iOS LIMITATION:
-        // iOS requires speech synthesis to be triggered from a direct user gesture (tap/click).
-        // Blink-based interactions do NOT count as user gestures, so programmatic calls may fail.
-        // We've implemented an "unlock" pattern that triggers a silent utterance on first touch,
-        // but this may not be sufficient - iOS may still require each speak() call to be within
-        // a gesture context. This is a fundamental iOS security limitation with no reliable workaround
-        // without native app development or requiring users to manually enable audio permissions.
+        // Text-to-speech implementation with multiple fallbacks
+        // Priority: Web Speech API > eSpeak-ng.js (mobile) > animalese.js > (no audio)
         try {
-            if (!('speechSynthesis' in window)) return;
-            
-            // Lazy detect iOS
-            if (this.isIOS === undefined) {
-                this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            // Wait for audio to be unlocked if on mobile
+            if (this.isMobile && !this.audioUnlocked) {
+                // Wait a bit for unlock to complete
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
             
-            // iOS Safari requires speak() to be called synchronously from user gesture
-            // So we call speak() immediately without awaiting, then ensure voices in parallel
-            const u = new SpeechSynthesisUtterance(text);
-            u.rate = 1.0;
-            u.pitch = 1.0;
-            u.lang = 'en-US';
+            // Try Web Speech API first (if available)
+            if ('speechSynthesis' in window) {
+                try {
+                    await this.readAloudWebSpeech(text);
+                    return; // Success, exit
+                } catch (err) {
+                    console.warn('Web Speech API failed, trying fallback:', err);
+                    // Continue to fallback
+                }
+            }
             
-            // Try to get a voice synchronously if available, otherwise set it asynchronously
-            const synth = window.speechSynthesis;
-            let voices = synth.getVoices();
-            if (voices.length > 0) {
-                this.ttsVoices = voices;
-                const voice = this.getPreferredVoice();
-                if (voice) u.voice = voice;
-                u.lang = (voice && voice.lang) ? voice.lang : 'en-US';
-            } else {
-                // Voices not loaded yet - set up async loading but speak immediately anyway
-                // iOS will use default voice if voice property isn't set
-                this.ensureTTSReady().then(() => {
-                    // If still speaking, update voice (though this may not work mid-speech)
-                    const currentVoices = synth.getVoices();
-                    if (currentVoices.length > 0 && u && synth.speaking) {
-                        // Voice will be used for next call
-                        this.ttsVoices = currentVoices;
+            // Try eSpeak-ng.js on mobile (if available and audio unlocked)
+            if (this.isMobile && this.espeakJsReady && this.espeakTTS && this.audioContext && this.audioUnlocked) {
+                try {
+                    this.readAloudESpeakJS(text);
+                    return; // Try it (may not throw, so continue)
+                } catch (err) {
+                    console.warn('eSpeak-ng.js failed, trying fallback:', err);
+                }
+            }
+            
+            // Fallback to animalese.js (Animal Crossing-style sounds)
+            // This works through Web Audio API after unlock, compatible with iOS
+            if (this.animaleseReady && this.audioContext && this.audioUnlocked) {
+                try {
+                    this.readAloudAnimalese(text);
+                    return; // Success (or at least attempted)
+                } catch (err) {
+                    console.error('animalese.js failed:', err);
+                }
+            }
+            
+            // If we get here, all TTS methods failed
+            console.warn('All text-to-speech methods failed for:', text);
+        } catch (err) {
+            console.error('Text-to-speech error:', err);
+        }
+    }
+    
+    readAloudWebSpeech(text) {
+        // Web Speech API implementation (desktop preferred, mobile fallback)
+        // Returns a promise that resolves if successful, rejects if it fails
+        return new Promise((resolve, reject) => {
+            try {
+                if (!('speechSynthesis' in window)) {
+                    reject(new Error('Web Speech API not available'));
+                    return;
+                }
+                
+                // Lazy detect iOS
+                if (this.isIOS === undefined) {
+                    this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                }
+                
+                const u = new SpeechSynthesisUtterance(text);
+                u.rate = 1.0;
+                u.pitch = 1.0;
+                u.lang = 'en-US';
+                
+                // Try to get a voice synchronously if available
+                const synth = window.speechSynthesis;
+                let voices = synth.getVoices();
+                if (voices.length > 0) {
+                    this.ttsVoices = voices;
+                    const voice = this.getPreferredVoice();
+                    if (voice) u.voice = voice;
+                    u.lang = (voice && voice.lang) ? voice.lang : 'en-US';
+                } else {
+                    // Voices not loaded yet - set up async loading
+                    this.ensureTTSReady().then(() => {
+                        const currentVoices = synth.getVoices();
+                        if (currentVoices.length > 0) {
+                            this.ttsVoices = currentVoices;
+                        }
+                    }).catch(() => {});
+                }
+                
+                // Track if speech actually starts
+                let speechStarted = false;
+                let startTimeout = null;
+                const checkStart = () => {
+                    if (!speechStarted) {
+                        speechStarted = true;
+                        if (startTimeout) clearTimeout(startTimeout);
                     }
-                }).catch(() => {});
-            }
-            
-            // iOS WebKit resume workaround: periodically call resume() while speaking
-            let resumeTimer = null;
-            if (this.isIOS && window.speechSynthesis && typeof window.speechSynthesis.resume === 'function') {
-                resumeTimer = setInterval(() => {
-                    try { window.speechSynthesis.resume(); } catch {}
-                }, 200);
+                };
+                
+                // iOS WebKit resume workaround
+                let resumeTimer = null;
                 const cleanup = () => {
                     if (resumeTimer) {
                         clearInterval(resumeTimer);
                         resumeTimer = null;
                     }
+                    if (startTimeout) {
+                        clearTimeout(startTimeout);
+                        startTimeout = null;
+                    }
                 };
-                u.onend = cleanup;
-                u.onerror = cleanup;
+                
+                // Set up event handlers
+                u.onstart = () => {
+                    checkStart();
+                    resolve(); // Speech started successfully
+                };
+                u.onerror = (err) => {
+                    cleanup();
+                    reject(err); // Speech failed
+                };
+                u.onend = () => {
+                    cleanup();
+                    // If we got here and haven't resolved/rejected, resolve
+                    if (!speechStarted) {
+                        resolve();
+                    }
+                };
+                
+                if (this.isIOS && window.speechSynthesis && typeof window.speechSynthesis.resume === 'function') {
+                    resumeTimer = setInterval(() => {
+                        try { window.speechSynthesis.resume(); } catch {}
+                    }, 200);
+                }
+                
+                // Cancel any ongoing speech
+                window.speechSynthesis.cancel();
+                
+                // iOS Safari quirk: call getVoices() to wake up the API
+                if (this.isIOS) {
+                    try {
+                        synth.getVoices();
+                    } catch {}
+                }
+                
+                // Set timeout to detect if speech doesn't start
+                // iOS may fail silently, non-iOS usually works but we'll wait a bit
+                startTimeout = setTimeout(() => {
+                    if (!speechStarted) {
+                        // Speech didn't start within timeout
+                        cleanup();
+                        if (this.isIOS && !synth.speaking) {
+                            // iOS likely blocked it
+                            reject(new Error('iOS Web Speech API requires user gesture for each call'));
+                        } else {
+                            // Non-iOS: might still be starting, but resolve anyway
+                            // The speech might be playing even if onstart didn't fire
+                            resolve();
+                        }
+                    }
+                }, this.isIOS ? 1000 : 500); // Wait longer on iOS
+                
+                // Speak
+                window.speechSynthesis.speak(u);
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+    
+    readAloudESpeakJS(text) {
+        // eSpeak-ng.js implementation via Web Audio API (mobile fallback)
+        // Uses unlocked AudioContext to play audio programmatically
+        try {
+            if (!this.audioContext || !this.audioUnlocked) {
+                console.warn('Audio context not unlocked, cannot use eSpeak-ng.js');
+                // Fallback to Web Speech API
+                if ('speechSynthesis' in window) {
+                    return this.readAloudWebSpeech(text);
+                }
+                return;
             }
             
-            // Cancel any ongoing speech
-            window.speechSynthesis.cancel();
-            
-            // iOS Safari quirk: call getVoices() to wake up the API before speaking
-            if (this.isIOS) {
-                try {
-                    synth.getVoices();
-                } catch {}
+            if (!this.espeakTTS || !this.espeakJsReady) {
+                console.warn('eSpeak-ng.js not ready - include espeakng-simple.js in HTML');
+                // Fallback to Web Speech API
+                if ('speechSynthesis' in window) {
+                    return this.readAloudWebSpeech(text);
+                }
+                return;
             }
             
-            // Speak immediately (synchronously for iOS)
-            window.speechSynthesis.speak(u);
-        } catch {}
+            // Use eSpeak-ng.js SimpleTTS API
+            // API: tts.speak(text, options, callback)
+            // Options can include: voice, rate, pitch, volume
+            const options = {
+                voice: 'en',        // Voice ID (default: 'en')
+                rate: 175,          // Speed (80-450, default: 175)
+                pitch: 50,          // Pitch (0-100, default: 50)
+                volume: 1.0         // Volume (0-2.0, default: 1.0)
+            };
+            
+            // Generate speech using eSpeak-ng.js
+            this.espeakTTS.speak(text, options, (audioData, sampleRate) => {
+                // audioData is an ArrayBuffer of PCM audio samples
+                // sampleRate is the sample rate (usually 22050)
+                this.playAudioDataFromPCM(audioData, sampleRate);
+            });
+        } catch (err) {
+            console.error('eSpeak-ng.js error:', err);
+            // Fallback to Web Speech API if eSpeak-ng.js fails
+            if ('speechSynthesis' in window) {
+                this.readAloudWebSpeech(text);
+            }
+        }
+    }
+    
+    readAloudAnimalese(text) {
+        // animalese.js implementation (Animal Crossing-style speech sounds)
+        // Works through Web Audio API after unlock - compatible with iOS
+        // Reference: https://github.com/Acedio/animalese.js
+        try {
+            if (!this.audioContext || !this.audioUnlocked) {
+                console.warn('Audio context not unlocked, cannot use animalese.js');
+                return;
+            }
+            
+            if (typeof Animalese === 'undefined') {
+                console.warn('animalese.js not loaded - include lib/animalese.js in HTML');
+                return;
+            }
+            
+            // animalese.js API: new Animalese(text, [pitch])
+            // Generates Animal Crossing-style speech sounds
+            // Returns an object with audio data or generates audio automatically
+            try {
+                // animalese.js API patterns:
+                // 1. new Animalese(text, pitch) - returns instance with audio property
+                // 2. Animalese(text, pitch) - generates and returns audio data
+                let audioData;
+                
+                if (typeof Animalese === 'function') {
+                    // Try pattern 1: new Animalese(text, pitch)
+                    try {
+                        const animalese = new Animalese(text, 1.0);
+                        if (animalese.audio) {
+                            audioData = animalese.audio;
+                        } else if (animalese.buffer) {
+                            audioData = animalese.buffer;
+                        } else {
+                            // Try pattern 2: direct function call
+                            audioData = Animalese(text, 1.0);
+                        }
+                    } catch (err) {
+                        // Try pattern 2: direct function call
+                        audioData = Animalese(text, 1.0);
+                    }
+                }
+                
+                // Play the audio through Web Audio API
+                if (audioData) {
+                    this.playAnimaleseAudio(audioData);
+                } else {
+                    console.warn('animalese.js did not generate audio data');
+                }
+            } catch (err) {
+                console.error('animalese.js generation error:', err);
+                throw err; // Re-throw so caller knows it failed
+            }
+        } catch (err) {
+            console.error('animalese.js error:', err);
+        }
+    }
+    
+    playAnimaleseAudio(audioData) {
+        // Play animalese audio through Web Audio API
+        // audioData can be a DataURI string, ArrayBuffer, or Blob
+        try {
+            if (!this.audioContext || !this.audioUnlocked) {
+                console.warn('Cannot play audio - context not unlocked');
+                return;
+            }
+            
+            // Handle different audio data formats
+            let audioBufferPromise;
+            
+            if (typeof audioData === 'string' && audioData.startsWith('data:')) {
+                // DataURI format - decode base64
+                const base64Data = audioData.split(',')[1];
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                audioBufferPromise = this.audioContext.decodeAudioData(bytes.buffer);
+            } else if (audioData instanceof ArrayBuffer) {
+                // ArrayBuffer format
+                audioBufferPromise = this.audioContext.decodeAudioData(audioData);
+            } else if (audioData instanceof Blob) {
+                // Blob format
+                audioBufferPromise = audioData.arrayBuffer().then(buffer => 
+                    this.audioContext.decodeAudioData(buffer)
+                );
+            } else {
+                // Try to convert to ArrayBuffer
+                const buffer = audioData.buffer || audioData;
+                audioBufferPromise = this.audioContext.decodeAudioData(buffer);
+            }
+            
+            // Play decoded audio
+            audioBufferPromise.then(audioBuffer => {
+                const source = this.audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(this.audioContext.destination);
+                source.start(0);
+            }).catch(err => {
+                console.error('Failed to decode/play animalese audio:', err);
+            });
+        } catch (err) {
+            console.error('Failed to play animalese audio:', err);
+        }
+    }
+    
+    playAudioDataFromPCM(pcmData, sampleRate) {
+        // Play PCM audio data through Web Audio API
+        // pcmData: ArrayBuffer containing 16-bit PCM samples
+        // sampleRate: sample rate in Hz (usually 22050)
+        try {
+            if (!this.audioContext || !this.audioUnlocked) {
+                console.warn('Cannot play audio - context not unlocked');
+                return;
+            }
+            
+            // Convert PCM data to AudioBuffer
+            const numChannels = 1; // Mono
+            const length = pcmData.byteLength / 2; // 16-bit = 2 bytes per sample
+            const audioBuffer = this.audioContext.createBuffer(numChannels, length, sampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+            const dataView = new DataView(pcmData);
+            
+            // Convert 16-bit PCM to float32 (-1.0 to 1.0)
+            for (let i = 0; i < length; i++) {
+                const sample = dataView.getInt16(i * 2, true); // little-endian
+                channelData[i] = sample / 32768.0; // Convert to [-1.0, 1.0]
+            }
+            
+            // Play the audio
+            const source = this.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this.audioContext.destination);
+            source.start(0);
+        } catch (err) {
+            console.error('Failed to play PCM audio:', err);
+        }
+    }
+    
+    playAudioData(audioData) {
+        // Play audio data (Blob, ArrayBuffer, or AudioBuffer) through Web Audio API
+        // This works programmatically after audio unlock
+        try {
+            if (!this.audioContext || !this.audioUnlocked) {
+                console.warn('Cannot play audio - context not unlocked');
+                return;
+            }
+            
+            // Handle different audio data types
+            let audioBufferPromise;
+            
+            if (audioData instanceof AudioBuffer) {
+                // Already decoded
+                audioBufferPromise = Promise.resolve(audioData);
+            } else if (audioData instanceof Blob) {
+                // Convert Blob to ArrayBuffer
+                audioBufferPromise = audioData.arrayBuffer().then(buffer => 
+                    this.audioContext.decodeAudioData(buffer)
+                );
+            } else if (audioData instanceof ArrayBuffer) {
+                // Decode ArrayBuffer
+                audioBufferPromise = this.audioContext.decodeAudioData(audioData);
+            } else {
+                // Try to convert to ArrayBuffer
+                audioBufferPromise = this.audioContext.decodeAudioData(audioData.slice ? audioData.slice(0) : audioData);
+            }
+            
+            // Play decoded audio
+            audioBufferPromise.then(decodedAudio => {
+                const source = this.audioContext.createBufferSource();
+                source.buffer = decodedAudio;
+                source.connect(this.audioContext.destination);
+                source.start(0);
+            }).catch(err => {
+                console.error('Failed to decode/play audio:', err);
+            });
+        } catch (err) {
+            console.error('Failed to play audio data:', err);
+        }
     }
     
     async ensureTTSReady() {
