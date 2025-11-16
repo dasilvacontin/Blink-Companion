@@ -27,7 +27,9 @@ const DEFAULT_BLINK_THRESHOLD = 1.0; // seconds
 class MenuApp {
     constructor() {
         // Start with initial calibration screen - force users to calibrate first
-        this.currentMenu = 'initial-calibration';
+        // Can skip with ?skipCalibration URL parameter for dev purposes
+        const shouldSkipCalibration = this.shouldSkipCalibration();
+        this.currentMenu = shouldSkipCalibration ? 'main' : 'initial-calibration';
         this.options = [];
         this.currentIndex = 0;
         this.scrollSpeed = DEFAULT_SCROLL_SPEED;
@@ -117,8 +119,13 @@ class MenuApp {
             this.currentMenu = 'main';
             this.isLocked = false;
         }
-        // Note: We no longer check shouldSkipLockscreen for initial calibration
-        // Everyone must calibrate first (forces first touch for iOS audio unlock)
+        
+        // Check if we should skip calibration (for development)
+        // This must be checked after isLocked is initialized
+        if (shouldSkipCalibration) {
+            this.currentMenu = 'main';
+            this.isLocked = false;
+        }
         
         // Calibration state
         this.isCalibrating = false;
@@ -288,6 +295,11 @@ class MenuApp {
     shouldSkipLockscreen() {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.has('skipLockscreen');
+    }
+    
+    shouldSkipCalibration() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.has('skipCalibration');
     }
     
     triggerMinesweeperConfetti() {
@@ -641,11 +653,12 @@ class MenuApp {
                 menuContainerEl.appendChild(title);
                 
                 // Calibrate button - this forces the first touch (important for iOS audio unlock)
+                // Width should not exceed 3 lockscreen buttons (lock-grid max-width: 400px)
                 const calibrateButton = document.createElement('button');
                 calibrateButton.className = 'calibrate-button';
                 calibrateButton.id = 'initial-calibrate-button';
                 calibrateButton.textContent = 'Calibrate blink recognition';
-                calibrateButton.style.cssText = 'margin: 40px auto; display: block; padding: 20px 40px; font-size: 1.2rem;';
+                calibrateButton.style.cssText = 'margin: 40px auto; display: block; padding: 15px 30px; font-size: 1.2rem; max-width: 400px; width: 100%;';
                 
                 // Add click handler that triggers audio unlock and starts calibration
                 calibrateButton.addEventListener('click', (e) => {
@@ -4951,12 +4964,12 @@ class MenuApp {
             this.calibrationTimer = null;
         }
         
-        // If this was the initial calibration, go directly to lock screen
+        // If this was the initial calibration, go directly to main menu
         // Otherwise, show completion screen (for re-calibration from settings)
         if (this.currentMenu === 'initial-calibration') {
-            // Navigate to lock screen
-            this.currentMenu = 'lock';
-            this.isLocked = true; // Ensure app is locked
+            // Navigate to main menu
+            this.currentMenu = 'main';
+            this.isLocked = false; // Unlock the app after initial calibration
             this.renderMenu();
         } else {
             // Show completion screen for re-calibration

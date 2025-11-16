@@ -8,7 +8,7 @@ export function createLockScreen({ patternProgress = [], showDebug = false }) {
   
   const title = document.createElement('h1');
   title.className = 'menu-title';
-  title.textContent = 'Lock screen';
+  title.textContent = 'Blink pattern to unlock';
   container.appendChild(title);
   
   const grid = document.createElement('div');
